@@ -1,0 +1,29 @@
+# Só leitura: descobre onde a versão antiga do site guardava os dados.
+name: Investigar versão antiga
+on:
+  push:
+    branches: [investigacao]
+permissions:
+  contents: write
+jobs:
+  investigar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/investigar-antigo.mjs
+      - name: Guardar relatório
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -d investigacao ] || exit 0
+          cd investigacao && git init -q -b investigacao-resultado && git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "Relatório"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" investigacao-resultado
