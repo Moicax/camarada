@@ -1,0 +1,8 @@
+# Configuração do Supabase CLI (usada pela publicação automática no GitHub).
+project_id = "camarada"
+
+[functions.registrar-compra]
+verify_jwt = false
+
+[functions.notificar]
+verify_jwt = false

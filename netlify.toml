@@ -1,0 +1,9 @@
+# O site é só a pasta web/ (não precisa de build).
+[build]
+  publish = "web"
+  command = ""
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"

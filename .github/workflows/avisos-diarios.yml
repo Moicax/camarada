@@ -1,0 +1,15 @@
+# Todo dia às 9h (horário de Brasília) pede ao servidor para enviar os avisos de tarefas.
+name: Avisos diários
+on:
+  schedule:
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+jobs:
+  avisar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Chamar a função de avisos
+        run: |
+          curl --fail-with-body -sS -X POST \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            "https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co/functions/v1/notificar"
