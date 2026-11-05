@@ -16,7 +16,10 @@
   --roxo: #5e5ce6;
   --sombra: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.06);
   --raio: 14px;
-  --barra-base: calc(58px + env(safe-area-inset-bottom));
+  /* Espaço reservado embaixo: o maior entre a área do iPhone e o selo do Netlify (ver app.js). */
+  --selo: 0px;
+  --rodape: max(env(safe-area-inset-bottom), var(--selo));
+  --barra-base: calc(58px + var(--rodape));
   color-scheme: light dark;
 }
 
@@ -89,15 +92,16 @@ button { cursor: pointer; border: 0; background: none; padding: 0; }
 .barra-base {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
   display: flex; justify-content: space-around;
-  padding: 6px 8px env(safe-area-inset-bottom);
+  padding: 6px 8px var(--rodape);
   height: var(--barra-base);
+  align-items: flex-start;
   background: color-mix(in srgb, var(--superficie) 88%, transparent);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   border-top: 0.5px solid var(--linha);
 }
 .barra-base button {
-  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  flex: 1; height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
   font-size: 11px; font-weight: 600; color: var(--texto-3);
 }
 .barra-base button .ic { width: 26px; height: 26px; }
@@ -289,7 +293,7 @@ button.mini .legenda { color: var(--azul); }
 .folha {
   width: 100%; max-width: 560px; max-height: 92dvh; overflow: auto;
   background: var(--fundo); border-radius: 16px 16px 0 0;
-  padding: 8px 16px calc(env(safe-area-inset-bottom) + 20px);
+  padding: 8px 16px calc(var(--rodape) + 20px);
   animation: subir 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .folha-alca { width: 38px; height: 5px; border-radius: 3px; background: var(--linha); margin: 0 auto 8px; }
@@ -362,7 +366,7 @@ button.mini .legenda { color: var(--azul); }
 .caminho { font-weight: 700; color: var(--texto); }
 
 /* login */
-.entrada { min-height: 100dvh; display: flex; flex-direction: column; justify-content: center; padding: 24px 16px calc(env(safe-area-inset-bottom) + 24px); max-width: 420px; margin: 0 auto; }
+.entrada { min-height: 100dvh; display: flex; flex-direction: column; justify-content: center; padding: 24px 16px calc(var(--rodape) + 24px); max-width: 420px; margin: 0 auto; }
 .marca { text-align: center; margin-bottom: 26px; }
 .marca img { width: 84px; height: 84px; border-radius: 20px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
 .marca h1 { margin: 12px 0 2px; font-size: 32px; font-weight: 800; letter-spacing: -0.02em; }

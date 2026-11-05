@@ -970,6 +970,29 @@ api.aoMudarSessao(async (evento, usuario) => {
   }
 });
 
+// Selo "Powered by Netlify": o Netlify o coloca fixo no canto de baixo dos sites do plano
+// grátis e não deixa desligar nesse plano. Para ele não cobrir as abas, mede onde ele está e
+// reserva esse espaço embaixo (--selo). Se a pessoa esconder o selo, o espaço volta ao normal.
+let ultimoSelo = 0;
+function ajustarSelo() {
+  const selo = document.getElementById('nl-badge-frame');
+  let altura = 0;
+  if (selo) {
+    const r = selo.getBoundingClientRect();
+    const estilo = getComputedStyle(selo);
+    const visivel = r.width > 0 && r.height > 0 && estilo.display !== 'none' && estilo.visibility !== 'hidden' && Number(estilo.opacity) > 0;
+    // Aberto (cartão grande), o selo ocupa mais; mantém o espaço do selo fechado.
+    if (visivel) altura = r.height < 160 ? Math.max(0, Math.round(innerHeight - r.top)) : ultimoSelo;
+  }
+  if (altura !== ultimoSelo) {
+    ultimoSelo = altura;
+    document.documentElement.style.setProperty('--selo', `${altura}px`);
+  }
+}
+new MutationObserver(ajustarSelo).observe(document.body, { childList: true });
+addEventListener('resize', ajustarSelo);
+setInterval(ajustarSelo, 1500);
+
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker não registrado', e));
 }
