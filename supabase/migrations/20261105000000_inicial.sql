@@ -102,6 +102,13 @@ create policy "dono" on public.gastos          for all using (user_id = auth.uid
 create policy "dono" on public.rendas_mes      for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy "dono" on public.inscricoes_push for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 
+-- Acesso pela API do app (o RLS acima limita às linhas de cada pessoa).
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on
+  public.categorias, public.tarefas, public.cartoes, public.gastos, public.rendas_mes, public.inscricoes_push
+  to authenticated;
+grant select on public.perfis to authenticated;
+
 -- No perfil, o app só pode mudar nome e renda (o código do Atalho muda pela função abaixo).
 revoke update on public.perfis from anon, authenticated;
 grant update (nome, renda_mensal) on public.perfis to authenticated;
@@ -140,7 +147,7 @@ create trigger gastos_checar_cartao
 
 -- ---------- conta nova: cria perfil e categorias iniciais ----------
 create or replace function public.nova_conta() returns trigger
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin
   insert into public.perfis (user_id, nome)
     values (new.id, coalesce(new.raw_user_meta_data ->> 'nome', null));
@@ -157,7 +164,7 @@ create trigger ao_criar_conta
 
 -- Gera um novo código do Atalho (se o antigo vazar, o antigo para de funcionar).
 create or replace function public.novo_token_atalho() returns text
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare novo text := encode(gen_random_bytes(24), 'hex');
 begin
   if auth.uid() is null then raise exception 'Não autenticado'; end if;

@@ -26,7 +26,8 @@ Cada pessoa cria a própria conta e só enxerga os próprios dados.
 | App (pasta `web/`) | Netlify ou Cloudflare Pages | grátis |
 | Contas e banco de dados | Supabase | grátis (até 50 mil usuários) |
 | Receber compras e enviar avisos (`supabase/functions/`) | Supabase Edge Functions | grátis |
-| Avisos diários às 9h | GitHub Actions | grátis |
+| Avisos diários às 9h | Supabase (agendamento no banco) | grátis |
+| Publicação automática | GitHub Actions | grátis |
 
 O app é uma página web instalável (Safari → Compartilhar → *Adicionar à Tela de Início*), sem App Store.
 
@@ -56,7 +57,8 @@ supabase/
   functions/notificar          avisos diários de tarefas
   functions/_shared/     cópia da lógica de web/lib (npm run sync)
 tests/                   testes (node --test)
-.github/workflows/       testes, publicação do servidor e avisos diários
+.github/workflows/       testes e publicação automática
+scripts/publicar.mjs     cria/atualiza Supabase e Netlify (roda no GitHub)
 ```
 
 Ao mudar algo em `web/lib/`, rode `npm run sync` para copiar para o servidor (um teste confere isso).

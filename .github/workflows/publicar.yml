@@ -1,0 +1,53 @@
+# Publica o Camarada inteiro (servidor no Supabase + site no Netlify) a cada envio para main.
+# Precisa de dois segredos (Settings → Secrets and variables → Actions):
+#   SUPABASE_ACCESS_TOKEN  e  NETLIFY_AUTH_TOKEN
+# Sem eles, a publicação é pulada (sem erro). Detalhes em docs/PUBLICAR.md.
+name: Publicar
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: publicar
+  cancel-in-progress: false
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_NAME: ${{ vars.NETLIFY_SITE_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+      - name: Conferir segredos
+        id: segredos
+        run: |
+          if [ -n "$SUPABASE_ACCESS_TOKEN" ] && [ -n "$NETLIFY_AUTH_TOKEN" ]; then
+            echo "ok=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Publicação pulada::Adicione os segredos SUPABASE_ACCESS_TOKEN e NETLIFY_AUTH_TOKEN (veja docs/PUBLICAR.md)."
+          fi
+      - uses: supabase/setup-cli@v1
+        if: steps.segredos.outputs.ok == '1'
+        with:
+          version: latest
+      - name: Publicar
+        if: steps.segredos.outputs.ok == '1'
+        run: node scripts/publicar.mjs
+      - name: Guardar a configuração gerada
+        if: steps.segredos.outputs.ok == '1'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/config.js
+          if ! git diff --cached --quiet; then
+            git commit -m "Configura o endereço do servidor [skip ci]"
+            git push
+          fi
