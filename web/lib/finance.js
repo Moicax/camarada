@@ -57,21 +57,43 @@ export const FORMAS = [
 export const formaDe = (gasto) => (gasto.forma === 'avista' ? 'avista' : 'credito');
 
 /**
+ * Tipo do lançamento, pelo sinal do valor:
+ *  - 'gasto'   valor positivo;
+ *  - 'entrada' valor negativo à vista: dinheiro que entrou (freela, Pix recebido, reembolso);
+ *  - 'estorno' valor negativo no crédito: devolução na fatura do cartão.
+ */
+export function tipoDe(g) {
+  if (Number(g.valor) >= 0) return 'gasto';
+  return formaDe(g) === 'avista' ? 'entrada' : 'estorno';
+}
+
+/**
  * Resumo do mês: quanto entrou, quanto saiu, quanto resta e quanto dá para gastar por dia.
  *
- * Crédito e à vista contam igual no orçamento do mês. A diferença é quando o dinheiro sai:
- * `saldo` é o que ainda está no salário agora (renda − à vista); `faturas` soma só o crédito, por cartão.
+ * Tudo é recalculado a partir da lista de lançamentos, em centavos inteiros: não existe saldo
+ * guardado que vai sendo somado e subtraído. Por isso apagar um lançamento devolve exatamente
+ * o valor dele, e editar muda só a diferença.
  *
- * O "por dia" é calculado com o que sobrou até ontem, dividido pelos dias que faltam
- * (contando hoje). Assim, uma compra feita hoje não muda o limite de hoje: ela reduz o
- * "resta hoje". Nos meses que já passaram não há limite diário.
+ *  - gasto:   gastos do mês menos estornos no cartão;
+ *  - entradas: dinheiro que entrou além da renda;
+ *  - resta:   renda + entradas − gasto.
+ *
+ * Crédito e à vista contam igual no orçamento do mês. A diferença é quando o dinheiro sai:
+ * `saldo` é o que ainda está no salário agora (renda + entradas − à vista); `faturas` soma só o
+ * crédito, por cartão.
+ *
+ * O "por dia" é o que sobrou até ontem (com todas as entradas do mês) dividido pelos dias que faltam
+ * (contando hoje). Assim, uma compra feita hoje não muda o limite de hoje: ela reduz o "resta hoje";
+ * e uma entrada se espalha pelos dias que faltam. Nos meses que já passaram não há limite diário.
  */
 export function resumoMes({ renda, gastos, mes, hoje, timeZone }) {
   const rendaC = centavos(Number(renda) || 0);
   const mesAtual = chaveMes(hoje);
-  let gastoC = 0;
+  let gastoC = 0; // gastos − estornos
   let gastoHojeC = 0;
-  let avistaC = 0;
+  let entradasC = 0;
+  let avistaC = 0; // gastos à vista
+  let creditoC = 0; // gastos no crédito − estornos
   const cartoes = new Map();
   const faturas = new Map();
   const doMes = [];
@@ -80,21 +102,27 @@ export function resumoMes({ renda, gastos, mes, hoje, timeZone }) {
     const dia = diaDoGasto(g, timeZone);
     if (chaveMes(dia) !== mes) continue;
     const v = centavos(Number(g.valor));
-    gastoC += v;
-    if (dia === hoje) gastoHojeC += v;
+    const tipo = tipoDe(g);
     const nome = g.cartao || 'Sem cartão';
-    const c = cartoes.get(nome) || { cartao: nome, totalC: 0, quantidade: 0 };
-    c.totalC += v;
-    c.quantidade += 1;
-    cartoes.set(nome, c);
-    if (formaDe(g) === 'avista') avistaC += v;
-    else {
-      const f = faturas.get(nome) || { cartao: nome, totalC: 0, quantidade: 0 };
-      f.totalC += v;
-      f.quantidade += 1;
-      faturas.set(nome, f);
+    if (tipo === 'entrada') {
+      entradasC += -v;
+    } else {
+      gastoC += v;
+      if (dia === hoje) gastoHojeC += v;
+      const c = cartoes.get(nome) || { cartao: nome, totalC: 0, quantidade: 0 };
+      c.totalC += v;
+      c.quantidade += 1;
+      cartoes.set(nome, c);
+      if (formaDe(g) === 'avista') avistaC += v;
+      else {
+        creditoC += v;
+        const f = faturas.get(nome) || { cartao: nome, totalC: 0, quantidade: 0 };
+        f.totalC += v;
+        f.quantidade += 1;
+        faturas.set(nome, f);
+      }
     }
-    doMes.push({ ...g, dia, forma: formaDe(g) });
+    doMes.push({ ...g, dia, forma: formaDe(g), tipo });
   }
 
   let diasRestantes;
@@ -102,35 +130,39 @@ export function resumoMes({ renda, gastos, mes, hoje, timeZone }) {
   else if (mes > mesAtual) diasRestantes = diasNoMes(mes);
   else diasRestantes = diasNoMes(mes) - Number(hoje.slice(8, 10)) + 1;
 
-  const restaC = rendaC - gastoC;
+  const disponivelC = rendaC + entradasC;
+  const restaC = disponivelC - gastoC;
   let porDia = null;
   let restaHoje = null;
-  if (diasRestantes > 0 && rendaC > 0) {
-    const ateOntemC = rendaC - (gastoC - gastoHojeC);
+  if (diasRestantes > 0 && disponivelC > 0) {
+    const ateOntemC = disponivelC - (gastoC - gastoHojeC);
     const porDiaC = Math.max(0, Math.floor(ateOntemC / diasRestantes));
     porDia = reais(porDiaC);
     restaHoje = mes === mesAtual ? reais(porDiaC - gastoHojeC) : porDia;
   }
 
+  const listar = (mapa) => [...mapa.values()]
+    .filter((x) => x.totalC !== 0)
+    .sort((a, b) => b.totalC - a.totalC)
+    .map(({ cartao, totalC, quantidade }) => ({ cartao, total: reais(totalC), quantidade }));
+
   return {
     mes,
     renda: reais(rendaC),
+    entradas: reais(entradasC),
+    disponivel: reais(disponivelC),
     gasto: reais(gastoC),
     resta: reais(restaC),
     gastoHoje: reais(gastoHojeC),
-    credito: reais(gastoC - avistaC),
+    credito: reais(creditoC),
     avista: reais(avistaC),
-    saldo: reais(rendaC - avistaC),
+    saldo: reais(disponivelC - avistaC),
     diasRestantes,
     porDia,
     restaHoje,
-    percentual: rendaC > 0 ? gastoC / rendaC : null,
-    porCartao: [...cartoes.values()]
-      .sort((a, b) => b.totalC - a.totalC)
-      .map(({ cartao, totalC, quantidade }) => ({ cartao, total: reais(totalC), quantidade })),
-    faturas: [...faturas.values()]
-      .sort((a, b) => b.totalC - a.totalC)
-      .map(({ cartao, totalC, quantidade }) => ({ cartao, total: reais(totalC), quantidade })),
+    percentual: disponivelC > 0 ? gastoC / disponivelC : null,
+    porCartao: listar(cartoes),
+    faturas: listar(faturas),
     gastos: doMes.sort((a, b) => String(b.data).localeCompare(String(a.data))),
   };
 }

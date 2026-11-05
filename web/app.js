@@ -5,7 +5,7 @@ import { diaLocal, chaveMes, mudarMes, nomeMes, rotuloDia, diaCurto, diasEntre }
 import {
   separar, rotuloPrazo, OPCOES_ADIAR, adiar, AVISO_PADRAO, RECORRENCIAS, proximaOcorrencia, normalizarHora,
 } from './lib/tasks.js';
-import { resumoMes, formatarReal, lerValor, nomeCartao, FORMAS } from './lib/finance.js';
+import { resumoMes, formatarReal, lerValor, nomeCartao, FORMAS, tipoDe } from './lib/finance.js';
 
 // ---------------------------------------------------------------- utilidades
 
@@ -553,7 +553,7 @@ function telaFinancas() {
   }
   const listaGastos = r.gastos.length
     ? [...porDia].map(([dia, lista]) => `
-        <h3 class="grupo-titulo">${rotuloDia(dia, h)} · ${formatarReal(lista.reduce((s, g) => s + g.valor, 0))}</h3>
+        <h3 class="grupo-titulo">${rotuloDia(dia, h)}${totalDoDia(lista)}</h3>
         <div class="grupo"><ul class="lista">${lista.map(linhaGasto).join('')}</ul></div>`).join('')
     : `<div class="vazio">${ic.carteira}<strong>Nenhum gasto ${ehAtual ? 'neste mês ainda' : 'neste mês'}</strong>${ehAtual ? 'Toque em + para lançar um gasto.' : ''}</div>`;
 
@@ -565,7 +565,7 @@ function telaFinancas() {
     </div>
     ${destaque}
     <div class="tres">
-      <button class="mini" data-acao="renda"><div class="legenda">Renda ›</div><div class="num">${formatarReal(r.renda)}</div></button>
+      <button class="mini" data-acao="renda"><div class="legenda">Renda ›</div><div class="num">${formatarReal(r.renda)}</div>${r.entradas ? `<div class="nota mais">+ ${formatarReal(r.entradas)} de entradas</div>` : ''}</button>
       <div class="mini"><div class="legenda">Gasto</div><div class="num">${formatarReal(r.gasto)}</div></div>
       <div class="mini"><div class="legenda">Resta</div><div class="num ${r.resta < 0 ? 'ruim' : ''}">${formatarReal(r.resta)}</div></div>
     </div>
@@ -576,76 +576,134 @@ function telaFinancas() {
     ${listaGastos}`;
 }
 
+/** Cabeçalho do dia: total gasto e, se houver, total que entrou. */
+function totalDoDia(lista) {
+  const c = (v) => Math.round(v * 100);
+  const gasto = lista.filter((g) => g.tipo !== 'entrada').reduce((t, g) => t + c(g.valor), 0) / 100;
+  const entrou = lista.filter((g) => g.tipo === 'entrada').reduce((t, g) => t - c(g.valor), 0) / 100;
+  return `${gasto ? ` · ${formatarReal(gasto)}` : ''}${entrou ? ` · entrou ${formatarReal(entrou)}` : ''}`;
+}
+
 function linhaGasto(g) {
   const hora = new Date(g.data).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   const auto = g.origem === 'atalho';
+  const entrada = g.tipo === 'entrada';
+  const meta = entrada ? ['Entrada', hora]
+    : [g.cartao, g.tipo === 'estorno' ? 'Estorno' : g.forma === 'avista' ? 'À vista' : (g.cartao ? '' : 'Crédito'), hora];
   return `
     <li><button class="gasto" data-acao="editar-gasto" data-id="${g.id}">
-      <span class="gasto-icone ${auto ? 'auto' : ''}" title="${auto ? 'Registrado pelo Apple Pay' : 'Lançado à mão'}">${auto ? ic.raio : ic.carteira}</span>
-      <span class="gasto-texto"><strong>${esc(g.estabelecimento || 'Gasto')}</strong><small>${[g.cartao, g.forma === 'avista' ? 'À vista' : (g.cartao ? '' : 'Crédito'), hora].filter(Boolean).map(esc).join(' · ')}</small></span>
+      <span class="gasto-icone ${auto ? 'auto' : ''} ${entrada ? 'entrada' : ''}" title="${entrada ? 'Entrada' : auto ? 'Registrado pelo Apple Pay' : 'Lançado à mão'}">${entrada ? ic.entrada : auto ? ic.raio : ic.carteira}</span>
+      <span class="gasto-texto"><strong>${esc(g.estabelecimento || (entrada ? 'Entrada' : 'Gasto'))}</strong><small>${meta.filter(Boolean).map(esc).join(' · ')}</small></span>
       <span class="gasto-valor ${g.valor < 0 ? 'negativo' : ''}">${g.valor < 0 ? '+' : ''}${formatarReal(Math.abs(g.valor))}</span>
     </button></li>`;
 }
 
+/** Texto do efeito no saldo: lançar gasto tira, lançar entrada soma. */
+const efeito = (valor) => (valor >= 0 ? `${formatarReal(valor)} a menos no saldo` : `${formatarReal(-valor)} a mais no saldo`);
+
 function folhaGasto(id) {
   const g = id ? estado.gastos.find((x) => x.id === id) : null;
   const dia = g ? diaLocal(new Date(g.data)) : hoje();
-  const valorTexto = g ? String(g.valor.toFixed(2)).replace('.', ',') : '';
+  const tipoInicial = g && tipoDe(g) === 'entrada' ? 'entrada' : 'gasto';
+  const valorInicial = g ? (tipoInicial === 'entrada' ? -g.valor : g.valor) : null;
+  const valorTexto = valorInicial === null ? '' : valorInicial.toFixed(2).replace('.', ',');
   let ultimaForma = 'credito';
   try { ultimaForma = localStorage.getItem('camarada-ultima-forma') || 'credito'; } catch { /* sem armazenamento */ }
   const formaInicial = g ? (g.forma === 'avista' ? 'avista' : 'credito') : ultimaForma;
+  const nomeTipo = { gasto: 'gasto', entrada: 'entrada' };
   abrirFolha(`
     <form id="form-gasto">
-      <div class="folha-topo"><button type="button" data-fechar>Cancelar</button><h2>${g ? 'Editar gasto' : 'Novo gasto'}</h2><button type="submit">Salvar</button></div>
+      <div class="folha-topo"><button type="button" data-fechar>Cancelar</button><h2 data-titulo>${g ? 'Editar' : 'Novo'} ${nomeTipo[tipoInicial]}</h2><button type="submit">Salvar</button></div>
+      <div class="segmentos dois-segmentos" role="radiogroup" aria-label="Tipo de lançamento">
+        <label><input type="radio" name="tipo" value="gasto" ${tipoInicial === 'gasto' ? 'checked' : ''}><span>Gasto</span></label>
+        <label><input type="radio" name="tipo" value="entrada" ${tipoInicial === 'entrada' ? 'checked' : ''}><span>Entrada</span></label>
+      </div>
       <div class="grupo">
         <div class="campo"><label for="g-valor">Valor</label><input id="g-valor" name="valor" inputmode="decimal" placeholder="R$ 0,00" value="${esc(valorTexto)}" required ${g ? '' : 'autofocus'}></div>
-        <div class="campo"><label for="g-onde">Onde</label><input id="g-onde" name="estabelecimento" maxlength="120" placeholder="Mercado, farmácia…" value="${esc(g?.estabelecimento)}"></div>
-        <div class="campo"><label for="g-cartao">Cartão</label><input id="g-cartao" name="cartao" list="lista-cartoes" maxlength="60" placeholder="Opcional" value="${esc(g?.cartao)}"></div>
+        <div class="campo"><label for="g-onde" data-rotulo-onde>${tipoInicial === 'entrada' ? 'De onde' : 'Onde'}</label><input id="g-onde" name="estabelecimento" maxlength="120" placeholder="${tipoInicial === 'entrada' ? 'Freela, Pix recebido…' : 'Mercado, farmácia…'}" value="${esc(g?.estabelecimento)}"></div>
+        <div class="campo" data-so-gasto><label for="g-cartao">Cartão</label><input id="g-cartao" name="cartao" list="lista-cartoes" maxlength="60" placeholder="Opcional" value="${esc(g?.cartao)}"></div>
         <div class="campo"><label for="g-dia">Dia</label><input id="g-dia" name="dia" type="date" max="${hoje()}" value="${dia}" required></div>
       </div>
-      <div class="segmentos dois-segmentos" role="radiogroup" aria-label="Forma de pagamento">
-        ${FORMAS.map((f) => `<label><input type="radio" name="forma" value="${f.id}" ${formaInicial === f.id ? 'checked' : ''}><span>${f.rotulo}</span></label>`).join('')}
+      <div data-so-gasto>
+        <div class="segmentos dois-segmentos" role="radiogroup" aria-label="Forma de pagamento">
+          ${FORMAS.map((f) => `<label><input type="radio" name="forma" value="${f.id}" ${formaInicial === f.id ? 'checked' : ''}><span>${f.rotulo}</span></label>`).join('')}
+        </div>
+        <p class="dica" style="margin:-8px 4px 14px;text-align:left">Crédito vai para a fatura do cartão. À vista (débito, Pix, dinheiro) sai do salário na hora.</p>
       </div>
-      <p class="dica" style="margin:-8px 4px 14px;text-align:left">Crédito vai para a fatura do cartão. À vista (débito, Pix, dinheiro) sai do salário na hora.</p>
+      <p class="dica" data-so-entrada style="margin:0 4px 14px;text-align:left">Dinheiro que entrou além da renda do mês: soma no saldo e se espalha pelos dias que faltam.</p>
       <datalist id="lista-cartoes">${estado.cartoes.map((c) => `<option value="${esc(c.nome)}">`).join('')}</datalist>
       ${g?.origem === 'atalho' ? '<p class="dica" style="margin:0 0 14px">Registrado automaticamente pelo Apple Pay.</p>' : ''}
       <p class="erro" hidden></p>
-      ${g ? '<div class="grupo"><button type="button" class="item destrutivo" data-apagar>Apagar gasto</button></div>' : ''}
+      ${g ? `<div class="grupo"><button type="button" class="item destrutivo" data-apagar>Apagar ${nomeTipo[tipoInicial]}</button></div>` : ''}
     </form>`,
   (el, fechar) => {
     el.querySelector('[data-fechar]').onclick = fechar;
+    const tipoAtual = () => el.querySelector('input[name=tipo]:checked').value;
+    const mostrarTipo = () => {
+      const tipo = tipoAtual();
+      el.querySelectorAll('[data-so-gasto]').forEach((x) => { x.hidden = tipo !== 'gasto'; });
+      el.querySelectorAll('[data-so-entrada]').forEach((x) => { x.hidden = tipo !== 'entrada'; });
+      el.querySelector('[data-titulo]').textContent = `${g ? 'Editar' : 'Novo'} ${nomeTipo[tipo]}`.replace('Novo entrada', 'Nova entrada');
+      el.querySelector('[data-rotulo-onde]').textContent = tipo === 'entrada' ? 'De onde' : 'Onde';
+      el.querySelector('#g-onde').placeholder = tipo === 'entrada' ? 'Freela, Pix recebido…' : 'Mercado, farmácia…';
+    };
+    el.querySelectorAll('input[name=tipo]').forEach((r) => r.addEventListener('change', mostrarTipo));
+    mostrarTipo();
     // Cartão marcado como débito em Ajustes: já escolhe "À vista".
     el.querySelector('#g-cartao').addEventListener('change', (e) => {
       const c = estado.cartoes.find((x) => x.nome.toLowerCase() === e.target.value.trim().toLowerCase());
       if (c) el.querySelector(`input[name=forma][value=${c.debito ? 'avista' : 'credito'}]`).checked = true;
     });
     el.querySelector('[data-apagar]')?.addEventListener('click', async () => {
-      const sim = await confirmar({ titulo: 'Apagar gasto?', texto: `${formatarReal(g.valor)} · ${g.estabelecimento || 'Gasto'}`, ok: 'Apagar', perigo: true });
+      const entrada = tipoInicial === 'entrada';
+      const sim = await confirmar({
+        titulo: `Apagar ${entrada ? 'entrada' : 'gasto'}?`,
+        texto: `${g.estabelecimento || (entrada ? 'Entrada' : 'Gasto')} · ${formatarReal(Math.abs(g.valor))}. ${entrada ? 'Esse valor sai do saldo.' : 'Esse valor volta para o saldo.'}`,
+        ok: 'Apagar',
+        perigo: true,
+      });
       if (!sim) return;
       fechar();
-      await tentar(() => api.apagarGasto(id), 'Gasto apagado');
-      carregarFinancas();
+      const ok = await tentar(() => api.apagarGasto(id));
+      await carregarFinancas();
+      if (!ok) return;
+      aviso(`${entrada ? 'Entrada apagada' : 'Gasto apagado'} · ${formatarReal(Math.abs(g.valor))} ${entrada ? 'saiu do' : 'voltou para o'} saldo`, async () => {
+        await tentar(() => api.restaurarGasto(g), 'Lançamento restaurado');
+        carregarFinancas();
+      });
     });
     el.querySelector('form').onsubmit = async (e) => {
       e.preventDefault();
       const d = Object.fromEntries(new FormData(e.target));
-      const valor = lerValor(d.valor);
+      const tipo = d.tipo === 'entrada' ? 'entrada' : 'gasto';
+      const digitado = lerValor(d.valor);
       const erro = el.querySelector('.erro');
-      if (!Number.isFinite(valor) || valor === 0) {
+      if (!Number.isFinite(digitado) || digitado === 0) {
         erro.textContent = 'Digite um valor, por exemplo 23,90.';
         erro.hidden = false;
         return;
       }
-      // Mantém a hora original se o dia não mudou; gasto novo de hoje usa a hora atual.
+      // Mantém a hora original se o dia não mudou; lançamento novo de hoje usa a hora atual.
       let data;
       if (g && d.dia === dia) data = g.data;
       else if (d.dia === hoje()) data = new Date().toISOString();
       else data = new Date(`${d.dia}T12:00:00`).toISOString();
-      const forma = d.forma === 'avista' ? 'avista' : 'credito';
-      try { localStorage.setItem('camarada-ultima-forma', forma); } catch { /* sem armazenamento */ }
-      const campos = { valor, estabelecimento: d.estabelecimento.trim() || null, cartao: nomeCartao(d.cartao), forma, data };
+      let campos;
+      if (tipo === 'entrada') {
+        // Entrada fica guardada com valor negativo (dinheiro que entrou), sempre à vista e sem cartão.
+        campos = { valor: -Math.abs(digitado), estabelecimento: d.estabelecimento.trim() || null, cartao: null, forma: 'avista', data };
+      } else {
+        const forma = d.forma === 'avista' ? 'avista' : 'credito';
+        try { localStorage.setItem('camarada-ultima-forma', forma); } catch { /* sem armazenamento */ }
+        campos = { valor: digitado, estabelecimento: d.estabelecimento.trim() || null, cartao: nomeCartao(d.cartao), forma, data };
+      }
       fechar();
-      await tentar(() => api.salvarGasto(g ? { id, ...campos } : campos), g ? 'Gasto salvo' : 'Gasto lançado');
+      let msg;
+      if (!g) msg = `${tipo === 'entrada' ? 'Entrada lançada' : 'Gasto lançado'} · ${efeito(campos.valor)}`;
+      else if (chaveMes(d.dia) !== chaveMes(dia)) msg = `Movido para ${nomeMes(chaveMes(d.dia)).toLowerCase()}`;
+      else if (campos.valor === g.valor) msg = 'Salvo';
+      else msg = `Salvo · ${efeito(campos.valor - g.valor)}`;
+      await tentar(() => api.salvarGasto(g ? { id, ...campos } : campos), msg);
       const mesGasto = chaveMes(d.dia);
       if (mesGasto !== estado.mes) estado.mes = mesGasto;
       carregarFinancas();

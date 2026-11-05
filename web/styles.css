@@ -438,3 +438,7 @@ label.item { cursor: pointer; }
   border: 0; background: transparent; font-weight: 700; color: var(--azul);
   appearance: none; -webkit-appearance: none; text-align: right; padding: 8px 0;
 }
+
+/* entradas (dinheiro que entrou) */
+.gasto-icone.entrada { background: color-mix(in srgb, var(--verde-forte) 18%, transparent); color: var(--verde); }
+.mini .nota.mais { color: var(--verde); }

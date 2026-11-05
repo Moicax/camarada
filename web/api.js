@@ -133,6 +133,13 @@ async function criarApiSupabase() {
     async apagarGasto(id) {
       ok(await sb.from('gastos').delete().eq('id', id));
     },
+    /** Desfazer: põe de volta um lançamento apagado, igual ao que era (inclusive se veio do Apple Pay). */
+    async restaurarGasto(g) {
+      ok(await sb.from('gastos').insert({
+        valor: g.valor, estabelecimento: g.estabelecimento, cartao_id: await idCartao(g.cartao),
+        forma: g.forma, data: g.data, origem: g.origem || 'manual',
+      }));
+    },
     async temComprasAutomaticas() {
       const linhas = ok(await sb.from('gastos').select('id').eq('origem', 'atalho').limit(1));
       return linhas.length > 0;
@@ -303,6 +310,11 @@ function criarApiDemo() {
       salvar();
     },
     async apagarGasto(id) { db.gastos = db.gastos.filter((g) => g.id !== id); salvar(); },
+    async restaurarGasto(g) {
+      const { dia, tipo, ...campos } = g;
+      db.gastos.push({ ...campos, id: novoId() });
+      salvar();
+    },
     async temComprasAutomaticas() { return db.gastos.some((g) => g.origem === 'atalho'); },
 
     async rendaDoMes(mes) { return db.rendas[mes] ?? null; },

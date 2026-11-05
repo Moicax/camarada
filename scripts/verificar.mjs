@@ -254,6 +254,38 @@ async function testarApp() {
     conferir('App: renda e gasto lançados', true);
     conferir('App: mostra crédito e à vista', (await p.locator('.dois').innerText()).includes('No crédito'));
 
+    // Saldo sincero: lançar, apagar, desfazer e entrada, lendo o "Resta" na tela a cada passo.
+    const resta = async () => {
+      await p.waitForTimeout(1200);
+      return Math.round(Number((await p.locator('.tres .mini >> nth=2 >> .num').innerText()).replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
+    };
+    const r0 = await resta();
+    await p.click('[data-acao=novo-gasto]');
+    await p.fill('#g-valor', '50,00');
+    await p.fill('#g-onde', 'Engano');
+    await p.click('#folha button[type=submit]');
+    const r1 = await resta();
+    await p.click('.gasto:has-text("Engano")');
+    await p.click('#folha [data-apagar]');
+    await p.click('.dialogo [data-r="1"]');
+    const r2 = await resta();
+    await p.click('.aviso-flutuante button');
+    const r3 = await resta();
+    await p.click('.gasto:has-text("Engano")');
+    await p.click('#folha [data-apagar]');
+    await p.click('.dialogo [data-r="1"]');
+    const r4 = await resta();
+    conferir('App: lançar R$ 50 tira R$ 50 do saldo', r0 - r1 === 5000, `${r0} → ${r1}`);
+    conferir('App: apagar devolve exatamente', r2 === r0, `${r1} → ${r2}`);
+    conferir('App: desfazer e apagar de novo fecham a conta', r0 - r3 === 5000 && r4 === r0, `${r3}, ${r4}`);
+    await p.click('[data-acao=novo-gasto]');
+    await p.click('.dois-segmentos label:has-text("Entrada")');
+    await p.fill('#g-valor', '200,00');
+    await p.fill('#g-onde', 'Freela');
+    await p.click('#folha button[type=submit]');
+    const r5 = await resta();
+    conferir('App: entrada de R$ 200 soma no saldo', r5 - r0 === 20000, `${r0} → ${r5}`);
+
     // Compra pelo Atalho, com o código desta conta, e o app recarrega ao voltar.
     const c = createClient(URL_SB, CONFIG.supabaseAnonKey, { auth: { persistSession: false } });
     await c.auth.signInWithPassword({ email: email('c'), password: SENHA });
