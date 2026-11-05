@@ -923,16 +923,29 @@ navigator.serviceWorker?.addEventListener('message', (e) => {
   if (e.data?.tipo === 'abrir' && e.data.tela) irPara(e.data.tela);
 });
 
-async function iniciarApp() {
-  estado.usuario = await api.usuario();
-  if (estado.usuario) {
-    try {
-      await carregarTudo();
-    } catch (e) {
-      console.error(e);
-      raiz.innerHTML = `<div class="vazio">${ic.alerta}<strong>Não foi possível carregar</strong>${esc(e.message)}<br><br><button class="btn-grande" onclick="location.reload()">Tentar de novo</button></div>`;
-      return;
-    }
+function comLimite(promessa, ms) {
+  let timer;
+  const limite = new Promise((_, rejeitar) => {
+    timer = setTimeout(() => rejeitar(new Error('O servidor demorou para responder. Confira sua internet.')), ms);
+  });
+  return Promise.race([promessa, limite]).finally(() => clearTimeout(timer));
+}
+
+// Uma inicialização por vez (o login e a abertura do app podem pedir ao mesmo tempo).
+let inicializacao = null;
+function iniciarApp() {
+  inicializacao ??= executarInicio().finally(() => { inicializacao = null; });
+  return inicializacao;
+}
+
+async function executarInicio() {
+  try {
+    estado.usuario = await comLimite(api.usuario(), 15000);
+    if (estado.usuario) await comLimite(carregarTudo(), 20000);
+  } catch (e) {
+    console.error(e);
+    raiz.innerHTML = `<div class="vazio">${ic.alerta}<strong>Não foi possível carregar</strong>${esc(e.message)}<br><br><button class="btn-grande" onclick="location.reload()">Tentar de novo</button></div>`;
+    return;
   }
   estado.iniciado = true;
   irPara(location.hash.slice(1) || 'tarefas');

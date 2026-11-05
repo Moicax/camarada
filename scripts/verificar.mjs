@@ -68,6 +68,8 @@ async function testarSite() {
   const r = await fetch(SITE);
   const html = await r.text();
   conferir('Site abre', r.ok && html.includes('<title>Camarada</title>'), `${SITE} → ${r.status}`);
+  const estranhas = html.split('\n').filter((l) => /netlify/i.test(l));
+  console.log(`[diagnóstico] linhas com "netlify" no HTML entregue: ${estranhas.length ? estranhas.map((l) => l.trim().slice(0, 300)).join(' || ') : 'nenhuma'}`);
   const cfg = await (await fetch(`${SITE}/config.js`)).text();
   conferir('Site aponta para o servidor novo', cfg.includes(REF));
   for (const arq of ['app.js', 'sw.js', 'manifest.webmanifest', 'icons/apple-touch-icon.png', 'lib/finance.js']) {
@@ -154,6 +156,17 @@ async function testarApp() {
   try {
     await p.goto(SITE, { waitUntil: 'networkidle' });
     await p.waitForSelector('#form-entrada', { timeout: 20000 });
+    await p.waitForTimeout(1500);
+    const estranhos = await p.evaluate(() => {
+      const nossos = new Set(['app']);
+      const lista = [...document.body.children]
+        .filter((el) => !nossos.has(el.id) && !['SCRIPT', 'NOSCRIPT'].includes(el.tagName))
+        .map((el) => `${el.tagName.toLowerCase()}#${el.id}.${[...el.classList].join('.')} shadow=${Boolean(el.shadowRoot)} ${el.outerHTML.slice(0, 400)}`);
+      const scripts = [...document.scripts].map((x) => x.src || `(inline ${x.textContent.slice(0, 120)})`);
+      const iframes = [...document.querySelectorAll('iframe')].map((f) => f.src);
+      return { lista, scripts, iframes };
+    });
+    console.log(`[diagnóstico] elementos fora do app: ${JSON.stringify(estranhos)}`);
     await foto('1-entrada');
     await p.click('[data-modo=criar]');
     await p.fill('input[name=nome]', 'Teste');
@@ -192,7 +205,10 @@ async function testarApp() {
     await c.auth.signInWithPassword({ email: email('c'), password: SENHA });
     const { data: perfil } = await c.from('perfis').select('token_atalho').single();
     const compra = await registrarCompra({ token: perfil.token_atalho, valor: 'R$ 8,50', estabelecimento: 'Café', cartao: 'Nubank' });
+    const t0 = Date.now();
     await p.reload({ waitUntil: 'networkidle' });
+    await p.waitForSelector('.gasto', { timeout: 20000 });
+    conferir('App: reabrir já logado carrega direto', true, `${((Date.now() - t0) / 1000).toFixed(1)} s`);
     await p.waitForSelector('.gasto-icone.auto', { timeout: 15000 });
     conferir('App: compra do Atalho aparece com o raio', compra.status === 200);
     await p.waitForTimeout(500);

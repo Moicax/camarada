@@ -48,7 +48,12 @@ async function criarApiSupabase() {
       return data.session?.user ?? null;
     },
     aoMudarSessao(cb) {
-      sb.auth.onAuthStateChange((evento, sessao) => cb(evento, sessao?.user ?? null));
+      // O Supabase avisa as mudanças de login enquanto ainda está ocupado com elas.
+      // Se a resposta chamar o Supabase na hora, os dois esperam um pelo outro para sempre
+      // (o app ficava preso em "Carregando…" ao reabrir já logado). Por isso, responde depois.
+      sb.auth.onAuthStateChange((evento, sessao) => {
+        setTimeout(() => cb(evento, sessao?.user ?? null), 0);
+      });
     },
     async entrar(email, senha) {
       ok(await sb.auth.signInWithPassword({ email, password: senha }));
