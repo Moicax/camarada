@@ -11,14 +11,18 @@ Cada pessoa cria a própria conta e só enxerga os próprios dados.
 **Tarefas**
 - Três abas: *Pendentes*, *Vencendo* e *Feitas*, organizadas sozinhas pela data.
 - Cada categoria define com quantos dias de antecedência a tarefa passa para *Vencendo* (ex.: Contas 5 dias, Documentos 15 dias).
+- Horário opcional, com lembretes **3 horas, 1 hora e 10 minutos antes**.
+- Tarefas que **repetem** (toda semana, todo mês, todo ano): ao concluir, a próxima já aparece.
+- Tarefa **sem data** fica em *Pendentes*.
 - Arrastar para a direita conclui (com confirmação); arrastar para a esquerda mostra *Adiar* e *Apagar*.
 - *Adiar* com um toque: 1 dia, 3 dias, 1 semana, 1 mês ou outra data.
 - Número no ícone do app com as tarefas em *Vencendo*.
-- Notificações quando a tarefa entra em *Vencendo*, na véspera, no dia e no dia seguinte.
+- Avisos do dia no horário escolhido: quando a tarefa entra em *Vencendo*, na véspera, no dia e no dia seguinte. Botão para testar a notificação.
 
 **Finanças**
 - Renda do mês → quanto já gastou → quanto resta → **quanto dá para gastar hoje**.
-- Gastos separados por cartão e por dia.
+- **Crédito × à vista**: crédito vai para a fatura do cartão; à vista (débito, Pix, dinheiro) sai do salário na hora. Cartões de débito são marcados em Ajustes.
+- Faturas do mês por cartão e gastos por dia.
 - **Compras automáticas**: cada compra com Apple Pay entra sozinha, com uma notificação ("R$ 23,90 · Padaria — hoje ainda dá para gastar R$ 79,61"). Funciona com um atalho do iPhone configurado uma vez ([docs/ATALHO.md](docs/ATALHO.md)).
 - Lançamento manual para compras sem Apple Pay.
 

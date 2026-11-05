@@ -54,6 +54,8 @@ async function novaConta(quem) {
   return { cliente: c, id: data.user.id };
 }
 
+let contaA = null;
+
 async function registrarCompra(corpo) {
   const r = await fetch(`${URL_SB}/functions/v1/registrar-compra`, {
     method: 'POST',
@@ -89,6 +91,7 @@ async function testarServidor() {
   conferir('Avisos não rodam sem o segredo', semSegredo.status === 401, String(semSegredo.status));
 
   const a = await novaConta('a');
+  contaA = a;
   conferir('Cadastro entra direto (sem confirmar e-mail)', true);
 
   const { data: perfil, error: ep } = await a.cliente.from('perfis').select('nome, renda_mensal, token_atalho').single();
@@ -120,26 +123,70 @@ async function testarServidor() {
   const { error: eInv } = await b.cliente.from('gastos').insert({ user_id: a.id, valor: 1 });
   conferir('Outra pessoa não cria dados em nome de alguém', Boolean(eInv), eInv?.message);
   await b.cliente.from('tarefas').update({ titulo: 'invadido' }).neq('titulo', '');
-  const { data: ta } = await a.cliente.from('tarefas').select('titulo');
+  const { data: ta } = await a.cliente.from('tarefas').select('id, titulo');
   conferir('Outra pessoa não altera os dados', ta?.[0]?.titulo === 'Conta de luz (teste)', ta?.[0]?.titulo);
+  const { error: eGer } = await b.cliente.from('tarefas').insert({ titulo: 'x', vencimento: dia(5), gerado_de: ta?.[0]?.id });
+  conferir('Outra pessoa não liga tarefa à repetição de alguém', Boolean(eGer), eGer?.message);
+
+  // Cartão marcado como débito: a compra do Atalho entra como à vista.
+  const { data: cartao } = await a.cliente.from('cartoes').select('id').eq('nome', 'Cartão Teste').single();
+  await a.cliente.from('cartoes').update({ debito: true }).eq('id', cartao.id);
+  const debito = await registrarCompra({ token: perfil.token_atalho, valor: '5,00', estabelecimento: 'Café (débito)', cartao: 'Cartão Teste' });
+  conferir('Compra com cartão de débito entra como à vista', debito.corpo?.forma === 'avista', `${debito.status} ${debito.corpo?.mensagem ?? debito.corpo?.erro ?? ''}`);
+
+  // Tarefa que repete.
+  const { error: eRep } = await a.cliente.from('tarefas').insert({ titulo: 'Aluguel (teste)', vencimento: dia(10), recorrencia: 'mensal', dia_original: Number(dia(10).slice(8)) });
+  conferir('Tarefa que repete', !eRep, eRep?.message);
+
+  // Botão "Testar notificação": com login responde; sem login é recusado.
+  const { data: tn, error: etn } = await a.cliente.functions.invoke('notificar', { body: { tipo: 'teste' } });
+  conferir('Testar notificação responde', !etn && tn?.ok === true, etn?.message ?? JSON.stringify(tn));
+  const semLogin = await fetch(`${URL_SB}/functions/v1/notificar`, { method: 'POST', body: JSON.stringify({ tipo: 'teste' }) });
+  conferir('Testar notificação exige login', semLogin.status === 401, String(semLogin.status));
 }
 
 // ---------------------------------------------------------------- 3. avisos diários
 
-async function testarAvisos() {
-  const jobs = await sql("select jobname, schedule, active from cron.job where jobname = 'camarada-avisos'");
-  conferir('Avisos agendados todo dia às 9h', jobs[0]?.schedule === '0 12 * * *' && jobs[0]?.active, JSON.stringify(jobs));
-  // Faz exatamente o que o agendamento faz, para testar o segredo guardado no banco.
-  const comando = await sql("select command from cron.job where jobname = 'camarada-avisos'");
-  const [{ id }] = await sql(`${comando[0].command.trim().replace(/;$/, '').replace(/^\s*select\s+/i, 'select ')} as id`);
-  let resposta;
-  for (let i = 0; i < 15 && !resposta; i++) {
+/** Roda exatamente o comando de um agendamento e devolve a resposta da função (ou null se não chamou). */
+async function rodarAgendamento(nome) {
+  const [{ command }] = await sql(`select command from cron.job where jobname = '${nome}'`);
+  const linhas = await sql(`select x.id from (${command.trim().replace(/;\s*$/, '')}) as x(id)`);
+  if (!linhas.length) return null;
+  for (let i = 0; i < 15; i++) {
     await new Promise((r) => setTimeout(r, 2000));
-    resposta = (await sql(`select status_code, content::text as content from net._http_response where id = ${Number(id)}`))[0];
+    const [resp] = await sql(`select status_code, content::text as content from net._http_response where id = ${Number(linhas[0].id)}`);
+    if (resp) return resp;
   }
-  conferir('Função de avisos responde ao agendamento', resposta?.status_code === 200, resposta ? `${resposta.status_code} ${resposta.content}` : 'sem resposta em 30s');
-  const avisada = await sql(`select avisos_enviados from public.tarefas t join auth.users u on u.id = t.user_id where u.email = '${email('a')}'`);
-  conferir('Tarefa que vence amanhã recebeu o aviso de véspera', JSON.stringify(avisada[0]?.avisos_enviados ?? []).includes('vespera'), JSON.stringify(avisada));
+  return { status_code: 0, content: 'sem resposta em 30s' };
+}
+
+const agoraEm = (minutos = 0) => {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: FUSO, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(Date.now() + minutos * 60000)).map((x) => [x.type, x.value]));
+  return { dia: `${p.year}-${p.month}-${p.day}`, hora: `${p.hour}:${p.minute}`, h: Number(p.hour) };
+};
+
+async function testarAvisos() {
+  const jobs = await sql("select jobname, schedule, active from cron.job where jobname in ('camarada-avisos', 'camarada-lembretes')");
+  const job = (n) => jobs.find((j) => j.jobname === n);
+  conferir('Avisos do dia agendados de hora em hora', job('camarada-avisos')?.schedule === '0 * * * *' && job('camarada-avisos')?.active, JSON.stringify(job('camarada-avisos')));
+  conferir('Lembretes por horário agendados a cada minuto', job('camarada-lembretes')?.schedule === '* * * * *' && job('camarada-lembretes')?.active, JSON.stringify(job('camarada-lembretes')));
+
+  // Avisos do dia: a conta A escolhe a hora atual; roda o que o agendamento roda.
+  await contaA.cliente.from('perfis').update({ horario_aviso: agoraEm().h }).eq('user_id', contaA.id);
+  const diario = await rodarAgendamento('camarada-avisos');
+  conferir('Avisos do dia respondem ao agendamento', diario?.status_code === 200, diario ? `${diario.status_code} ${diario.content}` : 'não chamou');
+  const { data: luz } = await contaA.cliente.from('tarefas').select('avisos_enviados').eq('titulo', 'Conta de luz (teste)').single();
+  conferir('Tarefa que vence amanhã recebeu o aviso de véspera', (luz?.avisos_enviados ?? []).includes('vespera'), JSON.stringify(luz));
+
+  // Lembretes: tarefa daqui a 30 minutos deve receber o de 1 hora.
+  const em30 = agoraEm(30);
+  await contaA.cliente.from('tarefas').insert({ titulo: 'Dentista (teste)', vencimento: em30.dia, hora: em30.hora });
+  const lembrete = await rodarAgendamento('camarada-lembretes');
+  conferir('Lembretes respondem ao agendamento', lembrete?.status_code === 200, lembrete ? `${lembrete.status_code} ${lembrete.content}` : 'não chamou');
+  const { data: dent } = await contaA.cliente.from('tarefas').select('avisos_enviados').eq('titulo', 'Dentista (teste)').single();
+  conferir('Tarefa daqui a 30 min recebeu o lembrete de 1 hora', (dent?.avisos_enviados ?? []).includes('h1'), JSON.stringify(dent));
 }
 
 // ---------------------------------------------------------------- 4. app no iPhone (simulado)
@@ -183,11 +230,13 @@ async function testarApp() {
     await p.click('[data-acao=nova-tarefa]');
     await p.fill('#folha input[name=titulo]', 'Pagar conta de luz');
     await p.fill('#t-venc', dia(1));
+    await p.fill('#t-hora', '18:00');
     await p.selectOption('#t-cat', { label: 'Contas' });
     await p.click('#folha button[type=submit]');
     await p.waitForSelector('.linha', { timeout: 15000 });
     await p.waitForTimeout(500);
     conferir('App: tarefa criada vai para Vencendo', (await p.locator('[aria-selected=true]').innerText()).includes('Vencendo'));
+    conferir('App: horário aparece no prazo', (await p.locator('.lista').innerText()).includes('Vence amanhã às 18h'));
     await foto('2-tarefas');
 
     await p.click('[data-tela=financas]');
@@ -203,6 +252,7 @@ async function testarApp() {
     await p.click('#folha button[type=submit]');
     await p.waitForSelector('.gasto', { timeout: 15000 });
     conferir('App: renda e gasto lançados', true);
+    conferir('App: mostra crédito e à vista', (await p.locator('.dois').innerText()).includes('No crédito'));
 
     // Compra pelo Atalho, com o código desta conta, e o app recarrega ao voltar.
     const c = createClient(URL_SB, CONFIG.supabaseAnonKey, { auth: { persistSession: false } });

@@ -62,15 +62,18 @@ Deno.serve(async (req) => {
   const estabelecimento = texto(corpo.estabelecimento, 120);
   const cartao = nomeCartao(corpo.cartao as string);
 
+  // Cartão marcado como débito em Ajustes: a compra sai do salário na hora (à vista).
   let cartaoId: string | null = null;
+  let forma = 'credito';
   if (cartao) {
     const { data: c, error } = await supabase
       .from('cartoes')
       .upsert({ user_id: userId, nome: cartao }, { onConflict: 'user_id,nome' })
-      .select('id')
+      .select('id, debito')
       .single();
     if (error) return resposta(500, { ok: false, erro: 'Erro ao salvar cartão' });
     cartaoId = c.id;
+    if (c.debito) forma = 'avista';
   }
 
   const { error: erroGasto } = await supabase.from('gastos').insert({
@@ -78,6 +81,7 @@ Deno.serve(async (req) => {
     valor,
     estabelecimento,
     cartao_id: cartaoId,
+    forma,
     origem: 'atalho',
   });
   if (erroGasto) return resposta(500, { ok: false, erro: 'Erro ao salvar compra' });
@@ -103,7 +107,7 @@ Deno.serve(async (req) => {
       : resumo.restaHoje >= 0
         ? `Hoje ainda dá para gastar ${formatarReal(resumo.restaHoje)}.`
         : `Passou ${formatarReal(-resumo.restaHoje)} do limite de hoje.`;
-  const mensagem = `${cartao ? `${cartao} · ` : ''}${detalhe}`;
+  const mensagem = `${cartao ? `${cartao}${forma === 'avista' ? ' (débito)' : ''} · ` : ''}${detalhe}`;
 
   try {
     await enviarPush(supabase, userId, { titulo, corpo: mensagem, url: '/#financas', tag: 'compra' });
@@ -111,5 +115,5 @@ Deno.serve(async (req) => {
     console.error('Compra salva, mas a notificação falhou', e);
   }
 
-  return resposta(200, { ok: true, mensagem: `${titulo} — ${mensagem}` });
+  return resposta(200, { ok: true, forma, mensagem: `${titulo} — ${mensagem}` });
 });

@@ -24,5 +24,6 @@ export const ic = {
   copiar: svg('<rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V5.5A1.5 1.5 0 0014.5 4h-9A1.5 1.5 0 004 5.5v9A1.5 1.5 0 005.5 16H8"/>'),
   compartilhar: svg('<path d="M12 3v12M7.5 7.5L12 3l4.5 4.5"/><path d="M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"/>'),
   sair: svg('<path d="M15 4h3a2 2 0 012 2v12a2 2 0 01-2 2h-3M10 17l5-5-5-5M15 12H4"/>'),
+  repetir: svg('<path d="M17 2.8l3.2 3.2L17 9.2"/><path d="M3.8 11V9.6A3.6 3.6 0 017.4 6h12.8"/><path d="M7 21.2L3.8 18 7 14.8"/><path d="M20.2 13v1.4a3.6 3.6 0 01-3.6 3.6H3.8"/>'),
   fechar: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
 };

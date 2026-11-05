@@ -49,8 +49,18 @@ export function diaDoGasto(gasto, timeZone) {
   return gasto.dia || diaLocal(new Date(gasto.data), timeZone);
 }
 
+/** Como o gasto foi pago: no crédito vai para a fatura; à vista (débito, Pix, dinheiro) sai do salário na hora. */
+export const FORMAS = [
+  { id: 'credito', rotulo: 'Crédito' },
+  { id: 'avista', rotulo: 'À vista' },
+];
+export const formaDe = (gasto) => (gasto.forma === 'avista' ? 'avista' : 'credito');
+
 /**
  * Resumo do mês: quanto entrou, quanto saiu, quanto resta e quanto dá para gastar por dia.
+ *
+ * Crédito e à vista contam igual no orçamento do mês. A diferença é quando o dinheiro sai:
+ * `saldo` é o que ainda está no salário agora (renda − à vista); `faturas` soma só o crédito, por cartão.
  *
  * O "por dia" é calculado com o que sobrou até ontem, dividido pelos dias que faltam
  * (contando hoje). Assim, uma compra feita hoje não muda o limite de hoje: ela reduz o
@@ -61,7 +71,9 @@ export function resumoMes({ renda, gastos, mes, hoje, timeZone }) {
   const mesAtual = chaveMes(hoje);
   let gastoC = 0;
   let gastoHojeC = 0;
+  let avistaC = 0;
   const cartoes = new Map();
+  const faturas = new Map();
   const doMes = [];
 
   for (const g of gastos) {
@@ -75,7 +87,14 @@ export function resumoMes({ renda, gastos, mes, hoje, timeZone }) {
     c.totalC += v;
     c.quantidade += 1;
     cartoes.set(nome, c);
-    doMes.push({ ...g, dia });
+    if (formaDe(g) === 'avista') avistaC += v;
+    else {
+      const f = faturas.get(nome) || { cartao: nome, totalC: 0, quantidade: 0 };
+      f.totalC += v;
+      f.quantidade += 1;
+      faturas.set(nome, f);
+    }
+    doMes.push({ ...g, dia, forma: formaDe(g) });
   }
 
   let diasRestantes;
@@ -99,11 +118,17 @@ export function resumoMes({ renda, gastos, mes, hoje, timeZone }) {
     gasto: reais(gastoC),
     resta: reais(restaC),
     gastoHoje: reais(gastoHojeC),
+    credito: reais(gastoC - avistaC),
+    avista: reais(avistaC),
+    saldo: reais(rendaC - avistaC),
     diasRestantes,
     porDia,
     restaHoje,
     percentual: rendaC > 0 ? gastoC / rendaC : null,
     porCartao: [...cartoes.values()]
+      .sort((a, b) => b.totalC - a.totalC)
+      .map(({ cartao, totalC, quantidade }) => ({ cartao, total: reais(totalC), quantidade })),
+    faturas: [...faturas.values()]
       .sort((a, b) => b.totalC - a.totalC)
       .map(({ cartao, totalC, quantidade }) => ({ cartao, total: reais(totalC), quantidade })),
     gastos: doMes.sort((a, b) => String(b.data).localeCompare(String(a.data))),

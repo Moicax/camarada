@@ -1,12 +1,19 @@
-// Roda uma vez por dia (agendado no banco, ver README) e avisa sobre tarefas:
-// quando entram em "Vencendo", na véspera, no dia e no dia seguinte ao vencimento.
-// Também atualiza o número no ícone do app.
+// Avisos de tarefas. Três modos (campo "tipo" no corpo):
+//  - "diario"    (agendado de hora em hora): para quem escolheu receber os avisos nesta hora,
+//                avisa quando a tarefa entra em "Vencendo", na véspera, no dia e no dia seguinte.
+//                Também atualiza o número no ícone do app.
+//  - "lembretes" (agendado de minuto em minuto, só quando há tarefa com horário chegando):
+//                avisa 3 horas, 1 hora e 10 minutos antes do horário da tarefa.
+//  - "teste"     (botão "Testar notificação" no app): manda um aviso de teste para a própria pessoa.
 //
 // Publicar com: supabase functions deploy notificar --no-verify-jwt
-// Protegida pelo cabeçalho x-cron-secret (variável CRON_SECRET).
+// "diario" e "lembretes" exigem o cabeçalho x-cron-secret (variável CRON_SECRET);
+// "teste" exige o login da pessoa (Authorization: Bearer <token do app>).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
-import { diaLocal, somarDias } from '../_shared/dates.js';
-import { classificar, etapaAviso, textoAviso, AVISO_PADRAO } from '../_shared/tasks.js';
+import { somarDias } from '../_shared/dates.js';
+import {
+  classificar, etapaAviso, textoAviso, etapaLembrete, textoLembrete, AVISO_PADRAO,
+} from '../_shared/tasks.js';
 import { enviarPush } from '../_shared/push.ts';
 
 const FUSO = 'America/Sao_Paulo';
@@ -18,42 +25,64 @@ const supabase = createClient(
   { auth: { persistSession: false } },
 );
 
+const CORS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-headers': 'authorization, apikey, content-type, x-client-info',
+  'access-control-allow-methods': 'POST, OPTIONS',
+};
+const resposta = (status: number, corpo: unknown) =>
+  new Response(JSON.stringify(corpo), { status, headers: { 'content-type': 'application/json', ...CORS } });
+
 type Tarefa = {
   id: string;
   user_id: string;
   titulo: string;
-  vencimento: string;
+  vencimento: string | null;
+  hora: string | null;
   concluida_em: string | null;
   avisos_enviados: string[];
   categorias: { aviso_dias: number } | null;
 };
+const CAMPOS = 'id, user_id, titulo, vencimento, hora, concluida_em, avisos_enviados, categorias(aviso_dias)';
 
-Deno.serve(async (req) => {
-  if (!SEGREDO || req.headers.get('x-cron-secret') !== SEGREDO) {
-    return new Response('Não autorizado', { status: 401 });
-  }
+/** Data, hora e minuto de agora em Brasília. */
+function agora() {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: FUSO, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date()).map((x) => [x.type, x.value]),
+  );
+  const hora = Number(p.hour);
+  return { hoje: `${p.year}-${p.month}-${p.day}`, hora, minutos: hora * 60 + Number(p.minute) };
+}
 
-  const hoje = diaLocal(new Date(), FUSO);
+async function marcar(t: Tarefa, etapa: string) {
+  t.avisos_enviados = [...(t.avisos_enviados ?? []), etapa];
+  await supabase.from('tarefas').update({ avisos_enviados: t.avisos_enviados }).eq('id', t.id);
+}
+
+async function buscar(filtro: (q: ReturnType<typeof consulta>) => ReturnType<typeof consulta>) {
   const tarefas: Tarefa[] = [];
   for (let de = 0; ; de += 1000) {
-    const { data, error } = await supabase
-      .from('tarefas')
-      .select('id, user_id, titulo, vencimento, concluida_em, avisos_enviados, categorias(aviso_dias)')
-      .is('concluida_em', null)
-      .lte('vencimento', somarDias(hoje, 90))
-      .order('id')
-      .range(de, de + 999);
-    if (error) return new Response(`Erro: ${error.message}`, { status: 500 });
+    const { data, error } = await filtro(consulta()).order('id').range(de, de + 999);
+    if (error) throw error;
     tarefas.push(...(data as unknown as Tarefa[]));
     if (!data || data.length < 1000) break;
   }
+  return tarefas;
+}
+const consulta = () => supabase.from('tarefas').select(CAMPOS).is('concluida_em', null);
 
+async function diario() {
+  const { hoje, hora } = agora();
+  const { data: perfis, error } = await supabase.from('perfis').select('user_id').eq('horario_aviso', hora);
+  if (error) throw error;
+  const pessoas = (perfis ?? []).map((p) => p.user_id);
+  if (!pessoas.length) return { hoje, hora, pessoas: 0, enviados: 0 };
+
+  const tarefas = await buscar((q) => q.in('user_id', pessoas).lte('vencimento', somarDias(hoje, 90)));
   const porPessoa = new Map<string, Tarefa[]>();
-  for (const t of tarefas) {
-    const lista = porPessoa.get(t.user_id) ?? [];
-    lista.push(t);
-    porPessoa.set(t.user_id, lista);
-  }
+  for (const t of tarefas) porPessoa.set(t.user_id, [...(porPessoa.get(t.user_id) ?? []), t]);
 
   let enviados = 0;
   for (const [userId, lista] of porPessoa) {
@@ -65,17 +94,61 @@ Deno.serve(async (req) => {
       const { titulo, corpo } = textoAviso(etapa, t)!;
       try {
         enviados += await enviarPush(supabase, userId, { titulo, corpo, badge, url: '/#tarefas', tag: `tarefa-${t.id}` });
-        await supabase
-          .from('tarefas')
-          .update({ avisos_enviados: [...(t.avisos_enviados ?? []), etapa] })
-          .eq('id', t.id);
+        await marcar(t, etapa);
       } catch (e) {
         console.error('Falha no aviso da tarefa', t.id, e);
       }
     }
   }
+  return { hoje, hora, pessoas: pessoas.length, tarefas: tarefas.length, enviados };
+}
 
-  return new Response(JSON.stringify({ ok: true, hoje, tarefas: tarefas.length, enviados }), {
-    headers: { 'content-type': 'application/json' },
+async function lembretes() {
+  const { hoje, minutos } = agora();
+  // Até 3h à frente pode cair no dia seguinte (tarefa à 0h30, agora 23h).
+  const tarefas = await buscar((q) => q.not('hora', 'is', null).gte('vencimento', hoje).lte('vencimento', somarDias(hoje, 1)));
+  let enviados = 0;
+  for (const t of tarefas) {
+    const etapa = etapaLembrete(t, hoje, minutos);
+    if (!etapa) continue;
+    const { titulo, corpo } = textoLembrete(etapa, t)!;
+    try {
+      enviados += await enviarPush(supabase, t.user_id, { titulo, corpo, url: '/#tarefas', tag: `lembrete-${t.id}` });
+      await marcar(t, etapa);
+    } catch (e) {
+      console.error('Falha no lembrete da tarefa', t.id, e);
+    }
+  }
+  return { hoje, tarefas: tarefas.length, enviados };
+}
+
+async function teste(req: Request) {
+  const token = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '');
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data.user) return resposta(401, { ok: false, erro: 'Entre na sua conta de novo.' });
+  const enviados = await enviarPush(supabase, data.user.id, {
+    titulo: 'Notificações funcionando',
+    corpo: 'É assim que os avisos do Camarada vão chegar.',
+    url: '/#ajustes',
+    tag: 'teste',
   });
+  return resposta(200, { ok: true, enviados });
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
+  if (req.method !== 'POST') return resposta(405, { ok: false, erro: 'Use POST' });
+  const corpo = await req.json().catch(() => ({}));
+  const tipo = corpo?.tipo ?? 'diario';
+
+  try {
+    if (tipo === 'teste') return await teste(req);
+    if (!SEGREDO || req.headers.get('x-cron-secret') !== SEGREDO) return resposta(401, { ok: false, erro: 'Não autorizado' });
+    if (tipo === 'lembretes') return resposta(200, { ok: true, tipo, ...(await lembretes()) });
+    if (tipo === 'diario') return resposta(200, { ok: true, tipo, ...(await diario()) });
+    return resposta(400, { ok: false, erro: `Tipo desconhecido: ${tipo}` });
+  } catch (e) {
+    console.error(e);
+    return resposta(500, { ok: false, erro: (e as Error).message });
+  }
 });

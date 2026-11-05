@@ -2,8 +2,10 @@ import { api, MODO_DEMO } from './api.js';
 import { CONFIG } from './config.js';
 import { ic } from './icones.js';
 import { diaLocal, chaveMes, mudarMes, nomeMes, rotuloDia, diaCurto, diasEntre } from './lib/dates.js';
-import { separar, rotuloPrazo, OPCOES_ADIAR, adiar, AVISO_PADRAO } from './lib/tasks.js';
-import { resumoMes, formatarReal, lerValor, nomeCartao } from './lib/finance.js';
+import {
+  separar, rotuloPrazo, OPCOES_ADIAR, adiar, AVISO_PADRAO, RECORRENCIAS, proximaOcorrencia, normalizarHora,
+} from './lib/tasks.js';
+import { resumoMes, formatarReal, lerValor, nomeCartao, FORMAS } from './lib/finance.js';
 
 // ---------------------------------------------------------------- utilidades
 
@@ -257,12 +259,15 @@ function telaTarefas() {
 function linhaTarefa(t) {
   const cat = estado.categorias.find((c) => c.id === t.categoria_id);
   const feita = Boolean(t.concluida_em);
-  const faltam = diasEntre(hoje(), t.vencimento);
-  const classePrazo = faltam < 0 ? 'prazo-atrasado' : faltam <= 1 ? 'prazo-urgente' : '';
-  const sub = feita
-    ? `${ic.check}Feita em ${diaCurto(diaLocal(new Date(t.concluida_em)))}`
-    : `<span class="${classePrazo}" style="display:inline-flex;align-items:center;gap:4px">${faltam < 0 ? ic.alerta : ic.relogio}${rotuloPrazo(t.vencimento, hoje())}</span>`;
-  const vencendo = !feita && faltam <= avisoDe(t);
+  const h = hoje();
+  const faltam = t.vencimento ? diasEntre(h, t.vencimento) : null;
+  const classePrazo = faltam === null ? '' : faltam < 0 ? 'prazo-atrasado' : faltam <= 1 ? 'prazo-urgente' : '';
+  const prazo = faltam === null ? ''
+    : `<span class="${classePrazo}" style="display:inline-flex;align-items:center;gap:4px">${faltam < 0 ? ic.alerta : ic.relogio}${rotuloPrazo(t.vencimento, h, t.hora)}</span>`;
+  const sub = feita ? `${ic.check}Feita em ${diaCurto(diaLocal(new Date(t.concluida_em)))}` : prazo;
+  const rec = RECORRENCIAS.find((r) => r.id === t.recorrencia);
+  const repete = rec && !feita ? `<span class="repete" title="${rec.rotulo}" aria-label="Repete: ${rec.rotulo}">${ic.repetir}</span>` : '';
+  const vencendo = !feita && faltam !== null && faltam <= avisoDe(t);
   return `
     <li class="linha ${feita ? 'feita' : ''}" data-id="${t.id}">
       <div class="linha-fundo">
@@ -278,7 +283,7 @@ function linhaTarefa(t) {
         </button>
         <div class="tarefa-texto">
           <div class="tarefa-titulo">${esc(t.titulo)}</div>
-          <div class="tarefa-sub">${sub}${cat ? `<span class="etiqueta">${esc(cat.nome)}</span>` : ''}</div>
+          ${sub || cat || repete ? `<div class="tarefa-sub">${sub}${repete}${cat ? `<span class="etiqueta">${esc(cat.nome)}</span>` : ''}</div>` : ''}
         </div>
         ${vencendo ? `<button class="btn-pilula" data-acao="adiar" data-id="${t.id}">${ic.adiar}Adiar</button>` : ''}
       </div>
@@ -287,16 +292,28 @@ function linhaTarefa(t) {
 
 async function concluir(id) {
   const t = estado.tarefas.find((x) => x.id === id);
-  const sim = await confirmar({ titulo: 'Concluir tarefa?', texto: t.titulo, ok: 'Concluir' });
+  const proxima = proximaOcorrencia(t);
+  const sim = await confirmar({
+    titulo: 'Concluir tarefa?',
+    texto: proxima ? `${t.titulo}. Como ela repete, a próxima fica para ${diaCurto(proxima.vencimento)}.` : t.titulo,
+    ok: 'Concluir',
+  });
   if (!sim) return;
   const quando = new Date().toISOString();
   t.concluida_em = quando;
   render();
   atualizarBadge();
-  const ok = await tentar(() => api.salvarTarefa({ id, concluida_em: quando }));
-  if (!ok) return recarregarTarefas();
-  aviso('Tarefa concluída', async () => {
-    await tentar(() => api.salvarTarefa({ id, concluida_em: null }));
+  const ok = await tentar(async () => {
+    await api.salvarTarefa({ id, concluida_em: quando });
+    if (proxima) await api.salvarTarefa(proxima);
+  });
+  await recarregarTarefas();
+  if (!ok) return;
+  aviso(proxima ? `Feita · próxima em ${diaCurto(proxima.vencimento)}` : 'Tarefa concluída', async () => {
+    await tentar(async () => {
+      await api.salvarTarefa({ id, concluida_em: null });
+      if (proxima) await api.apagarGeradas(id);
+    });
     recarregarTarefas();
   });
 }
@@ -318,19 +335,22 @@ async function apagarTarefa(id) {
 function folhaAdiar(id) {
   const t = estado.tarefas.find((x) => x.id === id);
   const h = hoje();
+  const base = t.vencimento && t.vencimento >= h ? t.vencimento : h;
   abrirFolha(`
     <div class="folha-topo"><button data-fechar>Cancelar</button><h2>Adiar</h2><span style="min-width:72px"></span></div>
-    <p class="dica" style="margin:0 0 12px">${esc(t.titulo)} · ${rotuloPrazo(t.vencimento, h)}</p>
+    <p class="dica" style="margin:0 0 12px">${esc(t.titulo)} · ${rotuloPrazo(t.vencimento, h, t.hora)}</p>
     <div class="chips">
       ${OPCOES_ADIAR.map((o) => `<button data-opcao="${o.id}">${o.rotulo}<small>${rotuloDia(adiar(t.vencimento, o.id, h), h).replace('Hoje', 'hoje')}</small></button>`).join('')}
     </div>
-    <div class="grupo"><div class="campo"><label for="adiar-data">Outra data</label><input id="adiar-data" type="date" min="${h}" value="${t.vencimento < h ? h : t.vencimento}"></div></div>
+    <div class="grupo"><div class="campo"><label for="adiar-data">Outra data</label><input id="adiar-data" type="date" min="${h}" value="${base}"></div></div>
     <button class="btn-grande" data-outra>Adiar para esta data</button>`,
   (el, fechar) => {
     el.querySelector('[data-fechar]').onclick = fechar;
     const salvar = async (data) => {
       fechar();
-      await tentar(() => api.salvarTarefa({ id, vencimento: data, avisos_enviados: [] }), `Adiada para ${diaCurto(data)}`);
+      const campos = { id, vencimento: data, avisos_enviados: [] };
+      if (t.recorrencia) campos.dia_original = Number(data.slice(8, 10));
+      await tentar(() => api.salvarTarefa(campos), `Adiada para ${diaCurto(data)}`);
       recarregarTarefas();
     };
     el.querySelectorAll('[data-opcao]').forEach((b) => { b.onclick = () => salvar(adiar(t.vencimento, b.dataset.opcao, h)); });
@@ -346,6 +366,8 @@ function folhaTarefa(id) {
   const catEscolhida = t ? t.categoria_id : estado.categorias.find((c) => c.nome === 'Geral')?.id;
   const opcoesCat = estado.categorias.map((c) =>
     `<option value="${c.id}" ${catEscolhida === c.id ? 'selected' : ''}>${esc(c.nome)}</option>`).join('');
+  const opcoesRep = RECORRENCIAS.map((r) => `<option value="${r.id}" ${t?.recorrencia === r.id ? 'selected' : ''}>${r.rotulo}</option>`).join('');
+  const venc = t ? (t.vencimento ?? '') : hoje();
   abrirFolha(`
     <form id="form-tarefa">
       <div class="folha-topo"><button type="button" data-fechar>Cancelar</button><h2>${t ? 'Editar tarefa' : 'Nova tarefa'}</h2><button type="submit">Salvar</button></div>
@@ -353,10 +375,14 @@ function folhaTarefa(id) {
         <div class="campo bloco"><input name="titulo" maxlength="120" placeholder="O que precisa ser feito?" value="${esc(t?.titulo)}" required ${t ? '' : 'autofocus'}></div>
       </div>
       <div class="grupo">
-        <div class="campo"><label for="t-venc">Vencimento</label><input id="t-venc" name="vencimento" type="date" value="${t?.vencimento ?? hoje()}" required></div>
+        <div class="campo"><label for="t-venc">Data</label><input id="t-venc" name="vencimento" type="date" value="${venc}"><button type="button" class="limpar" data-limpar="t-venc" aria-label="Sem data" ${venc ? '' : 'hidden'}>${ic.fechar}</button></div>
+        <div class="campo"><label for="t-hora">Horário</label><input id="t-hora" name="hora" type="time" value="${normalizarHora(t?.hora) ?? ''}"><button type="button" class="limpar" data-limpar="t-hora" aria-label="Sem horário" ${t?.hora ? '' : 'hidden'}>${ic.fechar}</button></div>
+        <div class="campo"><label for="t-rep">Repetir</label>
+          <select id="t-rep" name="recorrencia"><option value="">Não repete</option>${opcoesRep}</select></div>
         <div class="campo"><label for="t-cat">Categoria</label>
           <select id="t-cat" name="categoria_id"><option value="">Nenhuma</option>${opcoesCat}</select></div>
       </div>
+      <p class="dica" style="margin:-10px 4px 14px;text-align:left">Com horário, você recebe lembretes 3 horas, 1 hora e 10 minutos antes. Sem data, a tarefa fica em Pendentes.</p>
       <div class="grupo"><div class="campo bloco"><textarea name="notas" maxlength="2000" placeholder="Notas (opcional)">${esc(t?.notas)}</textarea></div></div>
       <p class="erro" hidden></p>
       ${t ? `<div class="grupo"><button type="button" class="item destrutivo" data-apagar>Apagar tarefa</button></div>` : ''}
@@ -364,17 +390,33 @@ function folhaTarefa(id) {
   (el, fechar) => {
     el.querySelector('[data-fechar]').onclick = fechar;
     el.querySelector('[data-apagar]')?.addEventListener('click', () => apagarTarefa(id));
+    // Botão "x" para tirar a data ou o horário.
+    el.querySelectorAll('[data-limpar]').forEach((b) => {
+      const campo = el.querySelector(`#${b.dataset.limpar}`);
+      b.onclick = () => { campo.value = ''; b.hidden = true; };
+      campo.addEventListener('input', () => { b.hidden = !campo.value; });
+    });
     el.querySelector('form').onsubmit = async (e) => {
       e.preventDefault();
       const d = Object.fromEntries(new FormData(e.target));
       const erro = el.querySelector('.erro');
-      if (!d.titulo.trim() || !d.vencimento) {
-        erro.textContent = 'Preencha o título e o vencimento.';
-        erro.hidden = false;
-        return;
-      }
-      const campos = { titulo: d.titulo.trim(), vencimento: d.vencimento, categoria_id: d.categoria_id || null, notas: d.notas.trim() || null };
-      if (t && t.vencimento !== campos.vencimento) campos.avisos_enviados = [];
+      const falhar = (msg) => { erro.textContent = msg; erro.hidden = false; };
+      if (!d.titulo.trim()) return falhar('Escreva o que precisa ser feito.');
+      const hora = normalizarHora(d.hora);
+      // Horário sem data vale para hoje.
+      const vencimento = d.vencimento || (hora ? hoje() : null);
+      const recorrencia = d.recorrencia || null;
+      if (recorrencia && !vencimento) return falhar('Para repetir, escolha uma data.');
+      const campos = {
+        titulo: d.titulo.trim(),
+        vencimento,
+        hora,
+        recorrencia,
+        dia_original: recorrencia ? Number(vencimento.slice(8, 10)) : null,
+        categoria_id: d.categoria_id || null,
+        notas: d.notas.trim() || null,
+      };
+      if (t && (t.vencimento !== campos.vencimento || normalizarHora(t.hora) !== hora)) campos.avisos_enviados = [];
       fechar();
       await tentar(() => api.salvarTarefa(t ? { id, ...campos } : campos), t ? 'Tarefa salva' : 'Tarefa criada');
       if (!t) estado.aba = separar([campos], avisoDe, hoje()).vencendo.length ? 'vencendo' : 'pendentes';
@@ -489,12 +531,18 @@ function telaFinancas() {
       <span><strong>Ative as compras automáticas</strong><span>Cada compra com Apple Pay aparece aqui sozinha. Leva 1 minuto.</span></span>
     </button>` : '';
 
-  const porCartao = r.porCartao.length ? `
-    <h3 class="grupo-titulo">Por cartão</h3>
-    <div class="grupo">${r.porCartao.map((c) => `
+  // Crédito vai para a fatura; à vista (débito, Pix, dinheiro) sai do salário na hora.
+  const formas = r.gasto ? `
+    <div class="dois">
+      <div class="mini"><div class="legenda">${ic.cartao} No crédito</div><div class="num">${formatarReal(r.credito)}</div><div class="nota">vai para a fatura</div></div>
+      <div class="mini"><div class="legenda">${ic.carteira} À vista</div><div class="num">${formatarReal(r.avista)}</div><div class="nota">débito, Pix, dinheiro</div></div>
+    </div>` : '';
+  const faturas = r.faturas.length ? `
+    <h3 class="grupo-titulo">Faturas do mês</h3>
+    <div class="grupo">${r.faturas.map((c) => `
       <div class="cartao-linha">
         <div class="cartao-topo"><span>${ic.cartao}${esc(c.cartao)} <small>${c.quantidade} ${c.quantidade === 1 ? 'compra' : 'compras'}</small></span><span>${formatarReal(c.total)}</span></div>
-        <div class="barra"><span style="width:${r.gasto > 0 ? Math.max(2, (c.total / r.gasto) * 100) : 0}%"></span></div>
+        <div class="barra"><span style="width:${r.credito > 0 ? Math.max(2, (c.total / r.credito) * 100) : 0}%"></span></div>
       </div>`).join('')}
     </div>` : '';
 
@@ -522,8 +570,9 @@ function telaFinancas() {
       <div class="mini"><div class="legenda">Resta</div><div class="num ${r.resta < 0 ? 'ruim' : ''}">${formatarReal(r.resta)}</div></div>
     </div>
     ${renda ? `<div class="barra barra-geral ${pct >= 100 ? 'ruim' : ''}" role="progressbar" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Quanto da renda já foi gasto"><span style="width:${pct}%"></span></div>` : ''}
+    ${formas}
     ${convite}
-    ${porCartao}
+    ${faturas}
     ${listaGastos}`;
 }
 
@@ -533,7 +582,7 @@ function linhaGasto(g) {
   return `
     <li><button class="gasto" data-acao="editar-gasto" data-id="${g.id}">
       <span class="gasto-icone ${auto ? 'auto' : ''}" title="${auto ? 'Registrado pelo Apple Pay' : 'Lançado à mão'}">${auto ? ic.raio : ic.carteira}</span>
-      <span class="gasto-texto"><strong>${esc(g.estabelecimento || 'Gasto')}</strong><small>${esc(g.cartao || 'Sem cartão')} · ${hora}</small></span>
+      <span class="gasto-texto"><strong>${esc(g.estabelecimento || 'Gasto')}</strong><small>${[g.cartao, g.forma === 'avista' ? 'À vista' : (g.cartao ? '' : 'Crédito'), hora].filter(Boolean).map(esc).join(' · ')}</small></span>
       <span class="gasto-valor ${g.valor < 0 ? 'negativo' : ''}">${g.valor < 0 ? '+' : ''}${formatarReal(Math.abs(g.valor))}</span>
     </button></li>`;
 }
@@ -542,6 +591,9 @@ function folhaGasto(id) {
   const g = id ? estado.gastos.find((x) => x.id === id) : null;
   const dia = g ? diaLocal(new Date(g.data)) : hoje();
   const valorTexto = g ? String(g.valor.toFixed(2)).replace('.', ',') : '';
+  let ultimaForma = 'credito';
+  try { ultimaForma = localStorage.getItem('camarada-ultima-forma') || 'credito'; } catch { /* sem armazenamento */ }
+  const formaInicial = g ? (g.forma === 'avista' ? 'avista' : 'credito') : ultimaForma;
   abrirFolha(`
     <form id="form-gasto">
       <div class="folha-topo"><button type="button" data-fechar>Cancelar</button><h2>${g ? 'Editar gasto' : 'Novo gasto'}</h2><button type="submit">Salvar</button></div>
@@ -551,13 +603,22 @@ function folhaGasto(id) {
         <div class="campo"><label for="g-cartao">Cartão</label><input id="g-cartao" name="cartao" list="lista-cartoes" maxlength="60" placeholder="Opcional" value="${esc(g?.cartao)}"></div>
         <div class="campo"><label for="g-dia">Dia</label><input id="g-dia" name="dia" type="date" max="${hoje()}" value="${dia}" required></div>
       </div>
-      <datalist id="lista-cartoes">${estado.cartoes.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
+      <div class="segmentos dois-segmentos" role="radiogroup" aria-label="Forma de pagamento">
+        ${FORMAS.map((f) => `<label><input type="radio" name="forma" value="${f.id}" ${formaInicial === f.id ? 'checked' : ''}><span>${f.rotulo}</span></label>`).join('')}
+      </div>
+      <p class="dica" style="margin:-8px 4px 14px;text-align:left">Crédito vai para a fatura do cartão. À vista (débito, Pix, dinheiro) sai do salário na hora.</p>
+      <datalist id="lista-cartoes">${estado.cartoes.map((c) => `<option value="${esc(c.nome)}">`).join('')}</datalist>
       ${g?.origem === 'atalho' ? '<p class="dica" style="margin:0 0 14px">Registrado automaticamente pelo Apple Pay.</p>' : ''}
       <p class="erro" hidden></p>
       ${g ? '<div class="grupo"><button type="button" class="item destrutivo" data-apagar>Apagar gasto</button></div>' : ''}
     </form>`,
   (el, fechar) => {
     el.querySelector('[data-fechar]').onclick = fechar;
+    // Cartão marcado como débito em Ajustes: já escolhe "À vista".
+    el.querySelector('#g-cartao').addEventListener('change', (e) => {
+      const c = estado.cartoes.find((x) => x.nome.toLowerCase() === e.target.value.trim().toLowerCase());
+      if (c) el.querySelector(`input[name=forma][value=${c.debito ? 'avista' : 'credito'}]`).checked = true;
+    });
     el.querySelector('[data-apagar]')?.addEventListener('click', async () => {
       const sim = await confirmar({ titulo: 'Apagar gasto?', texto: `${formatarReal(g.valor)} · ${g.estabelecimento || 'Gasto'}`, ok: 'Apagar', perigo: true });
       if (!sim) return;
@@ -580,7 +641,9 @@ function folhaGasto(id) {
       if (g && d.dia === dia) data = g.data;
       else if (d.dia === hoje()) data = new Date().toISOString();
       else data = new Date(`${d.dia}T12:00:00`).toISOString();
-      const campos = { valor, estabelecimento: d.estabelecimento.trim() || null, cartao: nomeCartao(d.cartao), data };
+      const forma = d.forma === 'avista' ? 'avista' : 'credito';
+      try { localStorage.setItem('camarada-ultima-forma', forma); } catch { /* sem armazenamento */ }
+      const campos = { valor, estabelecimento: d.estabelecimento.trim() || null, cartao: nomeCartao(d.cartao), forma, data };
       fechar();
       await tentar(() => api.salvarGasto(g ? { id, ...campos } : campos), g ? 'Gasto salvo' : 'Gasto lançado');
       const mesGasto = chaveMes(d.dia);
@@ -703,6 +766,14 @@ function telaAjustes() {
       <li><button class="item" data-acao="renda-padrao"><span class="rotulo">Renda mensal</span><span class="valor-dir">${formatarReal(Number(p.renda_mensal))} ›</span></button></li>
       <li><button class="item" data-acao="automaticas"><span class="gasto-icone auto" style="width:30px;height:30px">${ic.raio}</span><span class="rotulo">Compras automáticas</span><span class="valor-dir">›</span></button></li>
     </ul></div>
+    ${estado.cartoes.length ? `
+      <h3 class="grupo-titulo">Cartões de débito</h3>
+      <div class="grupo"><ul class="lista">
+        ${estado.cartoes.map((c) => `
+          <li><label class="item"><span class="gasto-icone" style="width:30px;height:30px">${ic.cartao}</span><span class="rotulo">${esc(c.nome)}</span>
+            <input type="checkbox" class="chave" data-mudar="cartao-debito" data-id="${c.id}" ${c.debito ? 'checked' : ''} aria-label="${esc(c.nome)} é de débito"></label></li>`).join('')}
+      </ul></div>
+      <p class="dica" style="text-align:left;margin:-10px 4px 0">Marque os cartões de débito: as compras com eles saem do salário na hora (à vista). Os outros vão para a fatura.</p>` : ''}
 
     <h3 class="grupo-titulo">Categorias de tarefas</h3>
     <div class="grupo"><ul class="lista">
@@ -715,8 +786,13 @@ function telaAjustes() {
     <h3 class="grupo-titulo">Notificações</h3>
     <div class="grupo"><ul class="lista">
       <li><div class="item"><span class="gasto-icone" style="width:30px;height:30px">${ic.sino}</span><span class="rotulo">Avisos de tarefas e compras</span><span class="valor-dir">${textoNotif}</span></div></li>
-      ${permissao !== 'granted' ? `<li><button class="item acao" data-acao="notificacoes">Ativar notificações</button></li>` : ''}
+      ${permissao !== 'granted' ? `<li><button class="item acao" data-acao="notificacoes">Ativar notificações</button></li>` : `<li><button class="item acao" data-acao="testar-notificacao">Testar notificação</button></li>`}
+      <li><label class="item" for="aj-horario"><span class="rotulo">Avisos do dia às</span>
+        <select id="aj-horario" class="seletor" data-mudar="horario-aviso">
+          ${Array.from({ length: 18 }, (_, i) => i + 5).map((h) => `<option value="${h}" ${Number(p.horario_aviso ?? 9) === h ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}
+        </select></label></li>
     </ul></div>
+    <p class="dica" style="text-align:left;margin:-10px 4px 0">Os avisos do dia (vence amanhã, vence hoje, atrasada) chegam nesse horário. Tarefas com horário também avisam 3h, 1h e 10 min antes.</p>
     ${ehIOS && !ehStandalone ? `
       <h3 class="grupo-titulo">Instalar no iPhone</h3>
       <div class="grupo"><div class="item" style="display:block;font-weight:500">No Safari, toque em ${ic.compartilhar} <strong>Compartilhar</strong> e depois em <strong>Adicionar à Tela de Início</strong>. As notificações só funcionam com o app instalado assim.</div></div>` : ''}
@@ -817,6 +893,9 @@ const TELAS = {
   ajustes: { titulo: 'Ajustes', icone: ic.ajustes, render: telaAjustes },
 };
 
+const FORMATO_HOJE = new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+const dataDeHoje = () => FORMATO_HOJE.format(new Date());
+
 function render() {
   if (!estado.iniciado) {
     raiz.innerHTML = '<div class="carregando">Carregando…</div>';
@@ -831,6 +910,7 @@ function render() {
   raiz.innerHTML = `
     <div class="app">
       <header class="topo">
+        ${estado.tela === 'tarefas' ? `<p class="topo-data">${dataDeHoje()}</p>` : ''}
         <div class="topo-linha">
           <h1>${tela.titulo}</h1>
           ${tela.novo ? `<button class="btn-redondo" data-acao="${tela.novo}" aria-label="Adicionar">${ic.mais}</button>` : ''}
@@ -855,6 +935,48 @@ function irPara(tela) {
   if (mudou) window.scrollTo(0, 0);
   render();
   if (tela === 'financas') carregarFinancas();
+  if (tela === 'ajustes') carregarCartoes();
+}
+
+async function testarNotificacao() {
+  await tentar(async () => {
+    const enviados = await api.testarNotificacao();
+    if (enviados > 0) aviso('Enviada! Deve chegar em alguns segundos.');
+    else {
+      await renovarInscricao();
+      aviso('Este aparelho ainda não recebe avisos. Toque em "Ativar notificações" e teste de novo.');
+    }
+  });
+}
+
+const MUDANCAS = {
+  'horario-aviso': async (el) => {
+    const horario = Number(el.value);
+    await tentar(async () => {
+      await api.salvarPerfil({ horario_aviso: horario });
+      estado.perfil.horario_aviso = horario;
+    }, `Avisos do dia às ${String(horario).padStart(2, '0')}:00`);
+  },
+  'cartao-debito': async (el) => {
+    const c = estado.cartoes.find((x) => x.id === el.dataset.id);
+    const debito = el.checked;
+    const ok = await tentar(() => api.salvarCartao(c.id, debito),
+      debito ? `${c.nome}: compras saem do salário na hora` : `${c.nome}: compras vão para a fatura`);
+    if (ok) c.debito = debito;
+    else el.checked = !debito;
+  },
+};
+
+document.addEventListener('change', (e) => {
+  const el = e.target.closest('[data-mudar]');
+  if (el && raiz.contains(el)) MUDANCAS[el.dataset.mudar]?.(el, e);
+});
+
+async function carregarCartoes() {
+  try {
+    estado.cartoes = await api.cartoes();
+    if (estado.tela === 'ajustes') render();
+  } catch (e) { console.warn(e); }
 }
 
 const ACOES = {
@@ -885,6 +1007,7 @@ const ACOES = {
   automaticas: () => folhaAutomaticas(),
   categoria: (el) => folhaCategoria(el.dataset.id),
   notificacoes: () => ativarNotificacoes(),
+  'testar-notificacao': () => testarNotificacao(),
   sair: async () => {
     const sim = await confirmar({ titulo: 'Sair da conta?', ok: 'Sair', perigo: true });
     if (sim) await api.sair();

@@ -386,3 +386,55 @@ button.mini .legenda { color: var(--azul); }
 }
 .aviso-flutuante button { color: var(--azul); font-weight: 800; }
 @media (prefers-color-scheme: dark) { .aviso-flutuante button { color: #0060df; } }
+
+/* ---------- novidades: data de hoje, repetir, crédito × à vista, chaves ---------- */
+
+.topo-data {
+  margin: 0 0 -2px; font-size: 13px; font-weight: 700; letter-spacing: 0.02em;
+  text-transform: uppercase; color: var(--texto-3);
+}
+
+.repete { display: inline-flex; color: var(--texto-3); }
+.repete .ic { width: 15px; height: 15px; stroke-width: 2.4; }
+
+.dois { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: -4px 0 14px; }
+.mini .legenda .ic { width: 14px; height: 14px; vertical-align: -2px; stroke-width: 2.4; }
+.mini .nota { font-size: 12px; font-weight: 600; color: var(--texto-3); margin-top: 1px; }
+
+/* seletor de duas opções feito com rádio (Crédito | À vista) */
+.dois-segmentos { grid-template-columns: 1fr 1fr; margin: 0 0 14px; }
+.dois-segmentos label { position: relative; display: block; }
+.dois-segmentos input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.dois-segmentos span {
+  display: flex; align-items: center; justify-content: center; padding: 9px 4px; border-radius: 8px;
+  font-size: 15px; font-weight: 700; color: var(--texto-2);
+}
+.dois-segmentos input:checked + span { background: var(--superficie); color: var(--texto); box-shadow: var(--sombra); }
+.dois-segmentos input:focus-visible + span { outline: 2px solid var(--azul); outline-offset: 2px; }
+
+/* "x" para tirar data/horário */
+.campo .limpar {
+  flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--superficie-2); color: var(--texto-3);
+}
+.campo .limpar .ic { width: 14px; height: 14px; stroke-width: 2.6; }
+
+/* chave liga/desliga no estilo do iPhone */
+.chave {
+  appearance: none; -webkit-appearance: none; flex: none; margin: 0;
+  width: 51px; height: 31px; border-radius: 16px; position: relative; cursor: pointer;
+  background: rgba(120, 120, 128, 0.32); transition: background 0.2s;
+}
+.chave::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%;
+  background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2); transition: transform 0.2s;
+}
+.chave:checked { background: var(--verde-forte); }
+.chave:checked::after { transform: translateX(20px); }
+.chave:focus-visible { outline: 2px solid var(--azul); outline-offset: 2px; }
+label.item { cursor: pointer; }
+
+.seletor {
+  border: 0; background: transparent; font-weight: 700; color: var(--azul);
+  appearance: none; -webkit-appearance: none; text-align: right; padding: 8px 0;
+}

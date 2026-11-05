@@ -4,7 +4,7 @@
 //  3. Configura login (endereço do site, sem confirmação por e-mail)
 //  4. Gera chaves de notificação e o segredo dos avisos (só na primeira vez)
 //  5. Publica as funções registrar-compra e notificar
-//  6. Agenda os avisos diários às 9h (Brasília) dentro do próprio banco
+//  6. Agenda no banco os avisos do dia (de hora em hora) e os lembretes por horário (minuto a minuto)
 //  7. Escreve web/config.js e publica no endereço de TESTE do Netlify (nunca no principal)
 //
 // Precisa de: SUPABASE_ACCESS_TOKEN, NETLIFY_AUTH_TOKEN.
@@ -178,7 +178,7 @@ function publicarFuncoes(ref) {
 // ---------------------------------------------------------------- 6. avisos diários
 
 async function agendarAvisos(ref, segredoCron) {
-  passo('Avisos diários (9h de Brasília)');
+  passo('Avisos: do dia (de hora em hora) e lembretes por horário (de minuto em minuto)');
   await sql(ref, `
     create extension if not exists pg_cron;
     create extension if not exists pg_net with schema extensions;`);
@@ -194,14 +194,33 @@ async function agendarAvisos(ref, segredoCron) {
       end $v$;`);
   }
   const url = `https://${ref}.supabase.co/functions/v1/notificar`;
-  await sql(ref, `
-    select cron.schedule('camarada-avisos', '0 12 * * *', $cron$
-      select net.http_post(
+  const chamar = (tipo) => `net.http_post(
         url := ${literal(url)},
         headers := jsonb_build_object(
           'content-type', 'application/json',
           'x-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'camarada_cron_secret')),
-        body := '{}'::jsonb)
+        body := '{"tipo":"${tipo}"}'::jsonb)`;
+  // Avisos do dia: de hora em hora; cada pessoa recebe na hora que escolheu em Ajustes.
+  await sql(ref, `
+    select cron.schedule('camarada-avisos', '0 * * * *', $cron$
+      select ${chamar('diario')}
+    $cron$);`);
+  // Lembretes 3h, 1h e 10 min antes: confere todo minuto, mas só chama o servidor quando
+  // existe tarefa aberta com horário nas próximas 3 horas que ainda não recebeu o lembrete.
+  await sql(ref, `
+    select cron.schedule('camarada-lembretes', '* * * * *', $cron$
+      select ${chamar('lembretes')}
+      where exists (
+        select 1 from public.tarefas t
+        where t.concluida_em is null and t.hora is not null
+          and (t.vencimento + t.hora) between (now() at time zone 'America/Sao_Paulo')
+                                         and (now() at time zone 'America/Sao_Paulo') + interval '3 hours 1 minute'
+          and not (t.avisos_enviados @> array[
+            case
+              when (t.vencimento + t.hora) <= (now() at time zone 'America/Sao_Paulo') + interval '10 minutes' then 'm10'
+              when (t.vencimento + t.hora) <= (now() at time zone 'America/Sao_Paulo') + interval '1 hour' then 'h1'
+              else 'h3'
+            end]))
     $cron$);`);
   console.log('  ✓ agendado');
 }

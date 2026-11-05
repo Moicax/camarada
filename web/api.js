@@ -76,7 +76,7 @@ async function criarApiSupabase() {
     },
 
     async perfil() {
-      return ok(await sb.from('perfis').select('nome, renda_mensal, token_atalho').single());
+      return ok(await sb.from('perfis').select('nome, renda_mensal, token_atalho, horario_aviso').single());
     },
     async salvarPerfil(campos) {
       const { data: { user } } = await sb.auth.getUser();
@@ -99,7 +99,7 @@ async function criarApiSupabase() {
 
     async tarefas() {
       return ok(await sb.from('tarefas')
-        .select('id, titulo, notas, vencimento, categoria_id, concluida_em, avisos_enviados')
+        .select('id, titulo, notas, vencimento, hora, recorrencia, dia_original, gerado_de, categoria_id, concluida_em, avisos_enviados')
         .order('vencimento'));
     },
     async salvarTarefa({ id, ...campos }) {
@@ -109,11 +109,15 @@ async function criarApiSupabase() {
     async apagarTarefa(id) {
       ok(await sb.from('tarefas').delete().eq('id', id));
     },
+    /** Desfazer a conclusão de uma tarefa que repete: apaga a próxima que ela gerou. */
+    async apagarGeradas(idOrigem) {
+      ok(await sb.from('tarefas').delete().eq('gerado_de', idOrigem).is('concluida_em', null));
+    },
 
     async gastosDoMes(mes) {
       const { inicio, fim } = intervaloDoMes(mes);
       const linhas = ok(await sb.from('gastos')
-        .select('id, valor, estabelecimento, data, origem, cartoes(nome)')
+        .select('id, valor, estabelecimento, data, origem, forma, cartoes(nome)')
         .gte('data', inicio).lt('data', fim)
         .order('data', { ascending: false }));
       return linhas.map(({ cartoes, ...g }) => ({ ...g, valor: Number(g.valor), cartao: cartoes?.nome ?? null }));
@@ -121,8 +125,8 @@ async function criarApiSupabase() {
     async cartoes() {
       return ok(await sb.from('cartoes').select('id, nome').order('nome')).map((c) => c.nome);
     },
-    async salvarGasto({ id, valor, estabelecimento, cartao, data }) {
-      const campos = { valor, estabelecimento, cartao_id: await idCartao(cartao), data };
+    async salvarGasto({ id, valor, estabelecimento, cartao, forma, data }) {
+      const campos = { valor, estabelecimento, cartao_id: await idCartao(cartao), forma, data };
       if (id) ok(await sb.from('gastos').update(campos).eq('id', id));
       else ok(await sb.from('gastos').insert({ ...campos, origem: 'manual' }));
     },
@@ -142,6 +146,17 @@ async function criarApiSupabase() {
       else ok(await sb.from('rendas_mes').upsert({ mes, valor }, { onConflict: 'user_id,mes' }));
     },
 
+    /** Cartão de débito: compras do Apple Pay com ele já feitas passam a contar como à vista. */
+    async salvarCartao(id, debito) {
+      ok(await sb.from('cartoes').update({ debito }).eq('id', id));
+      ok(await sb.from('gastos').update({ forma: debito ? 'avista' : 'credito' }).eq('cartao_id', id).eq('origem', 'atalho'));
+    },
+    async testarNotificacao() {
+      const { data, error } = await sb.functions.invoke('notificar', { body: { tipo: 'teste' } });
+      if (error) throw new Error('Não foi possível enviar o teste agora.');
+      return data?.enviados ?? 0;
+    },
+
     async salvarInscricaoPush(inscricao) {
       const { endpoint, keys } = inscricao.toJSON();
       ok(await sb.from('inscricoes_push').upsert(
@@ -155,7 +170,7 @@ async function criarApiSupabase() {
 // ---------------------------------------------------------------- Demonstração
 
 function criarApiDemo() {
-  const CHAVE = 'camarada-demo-v1';
+  const CHAVE = 'camarada-demo-v2';
   const novoId = () => Math.random().toString(36).slice(2, 10);
   const hoje = diaLocal();
   const quando = (dias, hora) => {
@@ -167,14 +182,16 @@ function criarApiDemo() {
     const cat = { contas: novoId(), docs: novoId(), geral: novoId() };
     return {
       usuario: null,
-      perfil: { nome: 'Você', renda_mensal: 3500, token_atalho: 'demo'.padEnd(48, '0') },
+      perfil: { nome: 'Você', renda_mensal: 3500, token_atalho: 'demo'.padEnd(48, '0'), horario_aviso: 9 },
       categorias: [
         { id: cat.contas, nome: 'Contas', aviso_dias: 5 },
         { id: cat.docs, nome: 'Documentos', aviso_dias: 15 },
         { id: cat.geral, nome: 'Geral', aviso_dias: 3 },
       ],
       tarefas: [
-        { id: novoId(), titulo: 'Pagar conta de luz', vencimento: somarDias(hoje, 1), categoria_id: cat.contas },
+        { id: novoId(), titulo: 'Pagar conta de luz', vencimento: somarDias(hoje, 1), hora: '18:00', categoria_id: cat.contas },
+        { id: novoId(), titulo: 'Aluguel', vencimento: somarDias(hoje, 3), categoria_id: cat.contas, recorrencia: 'mensal', dia_original: Number(somarDias(hoje, 3).slice(8, 10)) },
+        { id: novoId(), titulo: 'Organizar o armário', vencimento: null, categoria_id: cat.geral },
         { id: novoId(), titulo: 'Fatura do cartão', vencimento: somarDias(hoje, 4), categoria_id: cat.contas },
         { id: novoId(), titulo: 'Internet', vencimento: somarDias(hoje, -1), categoria_id: cat.contas },
         { id: novoId(), titulo: 'Renovar CNH', vencimento: somarDias(hoje, 40), categoria_id: cat.docs },
@@ -186,9 +203,11 @@ function criarApiDemo() {
         { valor: 61.4, estabelecimento: 'Posto Shell', cartao: 'Itaú Click', data: quando(0, '12:40'), origem: 'atalho' },
         { valor: 189.32, estabelecimento: 'Supermercado Dia', cartao: 'Nubank', data: quando(-1, '19:05'), origem: 'atalho' },
         { valor: 34.5, estabelecimento: 'Farmácia', cartao: 'Nubank', data: quando(-2, '17:20'), origem: 'manual' },
-        { valor: 450, estabelecimento: 'Aluguel (parte)', cartao: null, data: quando(-3, '09:00'), origem: 'manual' },
+        { valor: 450, estabelecimento: 'Aluguel (parte)', cartao: null, data: quando(-3, '09:00'), origem: 'manual', forma: 'avista' },
+        { valor: 18, estabelecimento: 'Feira (Pix)', cartao: null, data: quando(-1, '10:15'), origem: 'manual', forma: 'avista' },
         { valor: 89.9, estabelecimento: 'Restaurante', cartao: 'Itaú Click', data: quando(-3, '21:30'), origem: 'atalho' },
-      ].map((g) => ({ id: novoId(), ...g })),
+      ].map((g) => ({ id: novoId(), forma: 'credito', ...g })),
+      debito: {},
       rendas: {},
       automaticas: false,
     };
@@ -253,6 +272,7 @@ function criarApiDemo() {
       salvar();
     },
     async apagarTarefa(id) { db.tarefas = db.tarefas.filter((t) => t.id !== id); salvar(); },
+    async apagarGeradas(idOrigem) { db.tarefas = db.tarefas.filter((t) => !(t.gerado_de === idOrigem && !t.concluida_em)); salvar(); },
 
     async gastosDoMes(mes) {
       await espera();
@@ -260,7 +280,23 @@ function criarApiDemo() {
       return copia(db.gastos.filter((g) => g.data >= inicio && g.data < fim))
         .sort((a, b) => b.data.localeCompare(a.data));
     },
-    async cartoes() { return [...new Set(db.gastos.map((g) => g.cartao).filter(Boolean))].sort(); },
+    async cartoes() {
+      db.debito ??= {};
+      return [...new Set(db.gastos.map((g) => g.cartao).filter(Boolean))].sort()
+        .map((nome) => ({ id: nome, nome, debito: Boolean(db.debito[nome]) }));
+    },
+    async salvarCartao(nome, debito) {
+      db.debito ??= {};
+      db.debito[nome] = debito;
+      db.gastos.forEach((g) => { if (g.cartao === nome && g.origem === 'atalho') g.forma = debito ? 'avista' : 'credito'; });
+      salvar();
+    },
+    async testarNotificacao() {
+      const reg = await navigator.serviceWorker?.ready;
+      if (!reg || typeof Notification === 'undefined' || Notification.permission !== 'granted') return 0;
+      await reg.showNotification('Notificações funcionando', { body: 'É assim que os avisos do Camarada vão chegar.' });
+      return 1;
+    },
     async salvarGasto(g) {
       if (g.id) Object.assign(db.gastos.find((x) => x.id === g.id), g);
       else db.gastos.push({ ...g, id: novoId(), origem: 'manual' });
