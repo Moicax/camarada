@@ -16,7 +16,7 @@ const SUPABASE = process.env.SUPABASE_API_URL || 'https://api.supabase.com/v1';
 const NETLIFY = process.env.NETLIFY_API_URL || 'https://api.netlify.com/api/v1';
 const NOME_PROJETO = 'camarada-app';
 const REGIAO = 'sa-east-1'; // São Paulo
-const SITE = process.env.NETLIFY_SITE_NAME || 'camarada-organizador';
+const SITE = process.env.NETLIFY_SITE_NAME || 'camarada-teste';
 const tokenSb = process.env.SUPABASE_ACCESS_TOKEN;
 const tokenNl = process.env.NETLIFY_AUTH_TOKEN;
 

@@ -3,9 +3,9 @@
 #   SUPABASE_ACCESS_TOKEN  e  NETLIFY_AUTH_TOKEN
 # Sem eles, a publicação é pulada (sem erro). Detalhes em docs/PUBLICAR.md.
 name: Publicar
+# Por enquanto só roda à mão: o endereço principal voltou para a versão antiga do Camarada,
+# e esta versão nova vai para um site de teste separado (NETLIFY_SITE_NAME, padrão camarada-teste).
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: write
