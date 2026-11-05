@@ -8,7 +8,8 @@ import { mkdir, appendFile } from 'node:fs/promises';
 import { createClient } from '@supabase/supabase-js';
 import { CONFIG } from '../web/config.js';
 
-const SITE = `https://${process.env.NETLIFY_SITE_NAME || 'camarada-teste'}.netlify.app`;
+// Testa o endereço de teste (o principal fica com a versão antiga e não é tocado).
+const SITE = 'https://teste--camarada-organizador.netlify.app';
 const URL_SB = CONFIG.supabaseUrl;
 const REF = new URL(URL_SB).hostname.split('.')[0];
 const FUSO = 'America/Sao_Paulo';

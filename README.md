@@ -1,5 +1,8 @@
 # Camarada
 
+> **Versão de teste.** Publicada em https://teste--camarada-organizador.netlify.app.
+> O endereço principal continua com a versão antiga, que as pessoas usam; as duas serão unificadas depois.
+
 Organizador pessoal para iPhone: **tarefas com prazo** e **controle de gastos do mês**.
 Cada pessoa cria a própria conta e só enxerga os próprios dados.
 

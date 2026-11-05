@@ -3,9 +3,11 @@
 #   SUPABASE_ACCESS_TOKEN  e  NETLIFY_AUTH_TOKEN
 # Sem eles, a publicação é pulada (sem erro). Detalhes em docs/PUBLICAR.md.
 name: Publicar
-# Por enquanto só roda à mão: o endereço principal voltou para a versão antiga do Camarada,
-# e esta versão nova vai para um site de teste separado (NETLIFY_SITE_NAME, padrão camarada-teste).
+# Publica o app novo SÓ no endereço de teste (teste--camarada-organizador.netlify.app).
+# O endereço principal fica com a versão antiga, que as pessoas usam, e nunca é alterado aqui.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: write
@@ -19,7 +21,6 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-      NETLIFY_SITE_NAME: ${{ vars.NETLIFY_SITE_NAME }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

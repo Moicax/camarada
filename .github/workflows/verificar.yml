@@ -19,7 +19,6 @@ jobs:
     timeout-minutes: 15
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      NETLIFY_SITE_NAME: ${{ vars.NETLIFY_SITE_NAME }}
     steps:
       - uses: actions/checkout@v4
         with:

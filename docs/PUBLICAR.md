@@ -8,7 +8,11 @@ A publicação é automática: o GitHub roda `scripts/publicar.mjs` a cada envio
 4. gera as chaves de notificação e o segredo dos avisos (só na primeira vez);
 5. publica as funções `registrar-compra` e `notificar`;
 6. agenda os avisos de tarefas todo dia às 9h (Brasília), dentro do próprio banco;
-7. preenche `web/config.js` e publica o site no Netlify (**camarada-organizador.netlify.app**).
+7. preenche `web/config.js` e publica no **endereço de teste**: **teste--camarada-organizador.netlify.app**.
+
+> O endereço principal (**camarada-organizador.netlify.app**) continua com a versão antiga do
+> Camarada, que as pessoas usam. Esta publicação nunca o altera: ela só publica com o apelido
+> `teste` e, no fim, confere que a versão do endereço principal continua a mesma.
 
 ## O que você faz (uma vez só)
 
