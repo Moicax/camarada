@@ -17,6 +17,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - run: npm i --no-save @netlify/blobs@8.1.0
       - run: node scripts/investigar-antigo.mjs
       - name: Guardar relatório
         if: always()
