@@ -165,7 +165,7 @@ async function garantirSegredos(ref, configAtual, urlSite) {
 function publicarFuncoes(ref) {
   passo('Funções do servidor');
   for (const f of ['registrar-compra', 'notificar']) {
-    execFileSync('supabase', ['functions', 'deploy', f, '--project-ref', ref, '--no-verify-jwt'], { stdio: 'inherit' });
+    execFileSync('supabase', ['functions', 'deploy', f, `--remote=${ref}`, '--no-verify-jwt', '--use-api', '--yes'], { stdio: 'inherit' });
     console.log(`  ✓ ${f}`);
   }
 }

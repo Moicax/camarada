@@ -37,7 +37,8 @@ jobs:
       - uses: supabase/setup-cli@v1
         if: steps.segredos.outputs.ok == '1'
         with:
-          version: latest
+          # Versão fixa: versões novas podem mudar o comportamento (a 3.0 passou a pedir confirmação).
+          version: 3.0.0
       - name: Publicar
         if: steps.segredos.outputs.ok == '1'
         run: node scripts/publicar.mjs
