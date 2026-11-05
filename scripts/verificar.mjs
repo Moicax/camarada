@@ -163,7 +163,10 @@ async function testarApp() {
         .filter((el) => !nossos.has(el.id) && !['SCRIPT', 'NOSCRIPT'].includes(el.tagName))
         .map((el) => `${el.tagName.toLowerCase()}#${el.id}.${[...el.classList].join('.')} shadow=${Boolean(el.shadowRoot)} ${el.outerHTML.slice(0, 400)}`);
       const scripts = [...document.scripts].map((x) => x.src || `(inline ${x.textContent.slice(0, 120)})`);
-      const iframes = [...document.querySelectorAll('iframe')].map((f) => f.src);
+      const iframes = [...document.querySelectorAll('iframe')].map((f) => {
+        const r = f.getBoundingClientRect();
+        return `${f.id} x=${Math.round(r.x)} y=${Math.round(r.y)} ${Math.round(r.width)}x${Math.round(r.height)} (tela ${innerWidth}x${innerHeight})`;
+      });
       return { lista, scripts, iframes };
     });
     console.log(`[diagnóstico] elementos fora do app: ${JSON.stringify(estranhos)}`);

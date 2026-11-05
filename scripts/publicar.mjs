@@ -237,6 +237,38 @@ async function garantirSite() {
   return site;
 }
 
+// Campos de configuração do site ligados ao selo "Powered by Netlify".
+function camposSelo(obj, caminho = []) {
+  const achados = [];
+  for (const [chave, valor] of Object.entries(obj ?? {})) {
+    const aqui = [...caminho, chave];
+    if (/badge/i.test(chave)) achados.push({ caminho: aqui, valor });
+    else if (valor && typeof valor === 'object' && !Array.isArray(valor) && caminho.length < 2) achados.push(...camposSelo(valor, aqui));
+  }
+  return achados;
+}
+
+// O Netlify coloca um selo "Powered by Netlify" fixo no canto de baixo dos sites grátis, em cima
+// da barra de abas do app. A documentação permite desligá-lo no plano grátis; faz isso pela API.
+async function desligarSelo(site) {
+  passo('Selo "Powered by Netlify"');
+  const completo = await nl('GET', `/sites/${site.id}`);
+  const campos = camposSelo(completo);
+  console.log(`  campos encontrados: ${campos.length ? campos.map((c) => `${c.caminho.join('.')}=${JSON.stringify(c.valor)}`).join(', ') : 'nenhum'}`);
+  const ligados = campos.filter((c) => c.valor === true);
+  if (!ligados.length) return;
+  for (const c of ligados) {
+    const corpo = c.caminho.reduceRight((dentro, chave) => ({ [chave]: dentro }), false);
+    try {
+      await nl('PATCH', `/sites/${site.id}`, corpo);
+    } catch (e) {
+      console.log(`  não foi possível mudar ${c.caminho.join('.')}: ${e.message}`);
+    }
+  }
+  const depois = camposSelo(await nl('GET', `/sites/${site.id}`));
+  console.log(`  depois: ${depois.map((c) => `${c.caminho.join('.')}=${JSON.stringify(c.valor)}`).join(', ')}`);
+}
+
 function publicarSite(site) {
   execFileSync('npx', ['--yes', 'netlify-cli@17.38.1', 'deploy', '--dir', 'web', '--prod',
     '--site', site.id, '--auth', tokenNl, '--message', `GitHub ${process.env.GITHUB_SHA?.slice(0, 7) ?? ''}`],
@@ -267,6 +299,12 @@ async function principal() {
     supabaseAnonKey: await chaveAnon(ref),
     vapidPublicKey: vapidPublica,
   });
+
+  try {
+    await desligarSelo(site);
+  } catch (e) {
+    console.log(`  aviso: ${e.message}`);
+  }
 
   passo('Publicando o site');
   publicarSite(site);
