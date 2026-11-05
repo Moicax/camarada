@@ -1,0 +1,30 @@
+name: Restaurar versão antiga
+on:
+  push:
+    branches: [restaurar]
+permissions:
+  contents: write
+jobs:
+  restaurar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: |
+          npm i --no-save playwright@1.64.1
+          npx playwright install --with-deps chromium
+      - run: node scripts/restaurar-antigo.mjs
+      - name: Guardar resultado
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -d resultado ] || exit 0
+          cd resultado && git init -q -b restaurar-resultado && git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "Resultado"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" restaurar-resultado
