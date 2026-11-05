@@ -974,8 +974,17 @@ api.aoMudarSessao(async (evento, usuario) => {
 // grátis e não deixa desligar nesse plano. Para ele não cobrir as abas, mede onde ele está e
 // reserva esse espaço embaixo (--selo). Se a pessoa esconder o selo, o espaço volta ao normal.
 let ultimoSelo = 0;
+let seloObservado = null;
 function ajustarSelo() {
   const selo = document.getElementById('nl-badge-frame');
+  if (selo && selo !== seloObservado) {
+    // Acabou de aparecer (com animação): acompanha de perto até ele parar no lugar.
+    seloObservado = selo;
+    new ResizeObserver(ajustarSelo).observe(selo);
+    new MutationObserver(ajustarSelo).observe(selo, { attributes: true });
+    selo.addEventListener('load', ajustarSelo);
+    for (const ms of [50, 150, 300, 500, 800, 1200, 2000, 3000]) setTimeout(ajustarSelo, ms);
+  }
   let altura = 0;
   if (selo) {
     const r = selo.getBoundingClientRect();
@@ -991,7 +1000,7 @@ function ajustarSelo() {
 }
 new MutationObserver(ajustarSelo).observe(document.body, { childList: true });
 addEventListener('resize', ajustarSelo);
-setInterval(ajustarSelo, 1500);
+setInterval(ajustarSelo, 1000);
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker não registrado', e));

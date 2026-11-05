@@ -214,7 +214,16 @@ async function testarApp() {
     conferir('App: reabrir já logado carrega direto', true, `${((Date.now() - t0) / 1000).toFixed(1)} s`);
     await p.waitForSelector('.gasto-icone.auto', { timeout: 15000 });
     conferir('App: compra do Atalho aparece com o raio', compra.status === 200);
-    await p.waitForTimeout(500);
+    await p.waitForTimeout(1500);
+    // Logo depois de reabrir: nenhuma aba pode ficar debaixo do selo do Netlify.
+    const cobertas = await p.evaluate(() => [...document.querySelectorAll('.barra-base button')]
+      .filter((b) => {
+        const r = b.getBoundingClientRect();
+        const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return !b.contains(el);
+      })
+      .map((b) => b.textContent.trim()));
+    conferir('App: selo do Netlify não cobre as abas', cobertas.length === 0, cobertas.length ? `cobertas: ${cobertas.join(', ')}` : '');
     await foto('3-financas');
 
     await p.click('[data-tela=ajustes]');
