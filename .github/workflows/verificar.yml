@@ -1,0 +1,47 @@
+# Testa o Camarada no ar depois de cada publicação (ou quando rodado à mão).
+# Cria contas de teste, simula uma compra do Apple Pay, usa o app num iPhone simulado
+# e apaga tudo no fim. Fotos das telas ficam no ramo "verificacao".
+name: Verificar
+on:
+  workflow_run:
+    workflows: [Publicar]
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: verificar
+  cancel-in-progress: false
+jobs:
+  verificar:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      NETLIFY_SITE_NAME: ${{ vars.NETLIFY_SITE_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Instalar ferramentas de teste
+        run: |
+          npm i --no-save @supabase/supabase-js@2.45.4 playwright@1.64.1
+          npx playwright install --with-deps chromium
+      - name: Verificar
+        run: node scripts/verificar.mjs
+      - name: Guardar fotos das telas
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -d verificacao ] || exit 0
+          cd verificacao
+          git init -q -b verificacao
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qm "Verificação de ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" verificacao
