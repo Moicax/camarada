@@ -1,0 +1,14 @@
+{
+  "name": "camarada",
+  "private": true,
+  "type": "module",
+  "description": "Organizador pessoal: tarefas com prazo e controle de gastos do mês.",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "sync": "cp web/lib/dates.js web/lib/tasks.js web/lib/finance.js supabase/functions/_shared/",
+    "dev": "node scripts/servidor-local.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
