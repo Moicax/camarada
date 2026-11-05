@@ -488,6 +488,18 @@ function rendaAtual() {
   return estado.rendaMes ?? Number(estado.perfil?.renda_mensal ?? 0);
 }
 
+/**
+ * Explica de onde vem o limite do dia, para ninguém confundir com o saldo:
+ * "R$ 2.800,00 que restam ÷ 26 dias = R$ 107,69 por dia".
+ * O limite é calculado com o que restava no começo do dia; o gasto de hoje sai do "ainda dá".
+ */
+function explicarLimite(r) {
+  const restavam = Math.round((r.resta + r.gastoHoje) * 100) / 100;
+  const dias = r.diasRestantes === 1 ? 'hoje, último dia do mês' : `${r.diasRestantes} dias`;
+  const conta = `${formatarReal(restavam)} ${r.gastoHoje ? 'que restavam hoje cedo' : 'que restam no mês'} ÷ ${dias} = <strong>${formatarReal(r.porDia)} por dia</strong>`;
+  return r.gastoHoje ? `${conta}<br>Hoje você já gastou ${formatarReal(r.gastoHoje)}` : conta;
+}
+
 function telaFinancas() {
   const h = hoje();
   const mesAtual = chaveMes(h);
@@ -508,7 +520,7 @@ function telaFinancas() {
       <div class="destaque">
         <div class="legenda">${r.restaHoje >= 0 ? 'Hoje ainda dá para gastar' : 'Hoje você passou do limite em'}</div>
         <div class="grande ${r.restaHoje >= 0 ? 'ok' : 'ruim'}">${formatarReal(Math.abs(r.restaHoje))}</div>
-        <div class="detalhe">Limite de ${formatarReal(r.porDia)} por dia · ${r.diasRestantes === 1 ? 'último dia do mês' : `${r.diasRestantes} dias até o fim do mês`}</div>
+        <div class="detalhe">${explicarLimite(r)}</div>
       </div>`;
   } else if (estado.mes < mesAtual) {
     destaque = `
@@ -567,7 +579,7 @@ function telaFinancas() {
     <div class="tres">
       <button class="mini" data-acao="renda"><div class="legenda">Renda ›</div><div class="num">${formatarReal(r.renda)}</div>${r.entradas ? `<div class="nota mais">+ ${formatarReal(r.entradas)} de entradas</div>` : ''}</button>
       <div class="mini"><div class="legenda">Gasto</div><div class="num">${formatarReal(r.gasto)}</div></div>
-      <div class="mini"><div class="legenda">Resta</div><div class="num ${r.resta < 0 ? 'ruim' : ''}">${formatarReal(r.resta)}</div></div>
+      <div class="mini"><div class="legenda">Resta no mês</div><div class="num ${r.resta < 0 ? 'ruim' : ''}">${formatarReal(r.resta)}</div></div>
     </div>
     ${renda ? `<div class="barra barra-geral ${pct >= 100 ? 'ruim' : ''}" role="progressbar" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Quanto da renda já foi gasto"><span style="width:${pct}%"></span></div>` : ''}
     ${formas}

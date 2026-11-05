@@ -443,3 +443,8 @@ label.item { cursor: pointer; }
 /* entradas (dinheiro que entrou) */
 .gasto-icone.entrada { background: color-mix(in srgb, var(--verde-forte) 18%, transparent); color: var(--verde); }
 .mini .nota.mais { color: var(--verde); }
+
+/* No computador, o topo acompanha a largura do conteúdo (o + não fica colado na borda). */
+.topo > * { max-width: 608px; margin-left: auto; margin-right: auto; }
+.aviso-demo { margin: 0 max(16px, calc(50% - 304px)) 8px; }
+.destaque .detalhe strong { color: var(--texto-2); white-space: nowrap; }
