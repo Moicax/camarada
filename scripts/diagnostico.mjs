@@ -1,11 +1,12 @@
-// Só leitura: o código colado no Atalho é o da conta do dono? (só compara o começo; nada é mostrado)
+// Só leitura: tentativas recentes do Atalho do Apple Pay (formato e motivo). Log público: só tipos e status.
 import { CONFIG } from '../web/config.js';
 const REF = new URL(CONFIG.supabaseUrl).hostname.split('.')[0];
 const H = { authorization: `Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`, 'content-type': 'application/json' };
 const sql = async (query) => (await fetch(`https://api.supabase.com/v1/projects/${REF}/database/query`, { method: 'POST', headers: H, body: JSON.stringify({ query }) })).json();
-console.log('Começo do código bate com:', JSON.stringify(await sql(`select dono, (login is not null) as conta_por_nome, length(token_atalho) as tamanho
-  from public.perfis where token_atalho like '583f221a0db0988%'`)));
-// Simula o envio do Atalho com o código do dono, sem gravar: valor inválido → o servidor responde antes de salvar.
-const [d] = await sql(`select token_atalho from public.perfis where dono and login is not null`);
-const r = await fetch(`${CONFIG.supabaseUrl}/functions/v1/registrar-compra`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: d.token_atalho, valor: 'x' }) });
-console.log('Servidor com o código do dono:', r.status, (await r.text()).slice(0, 120));
+const linhas = await sql(`select to_char(criado_em at time zone 'America/Sao_Paulo','HH24:MI:SS') as hora, status, motivo, formato
+  from public.tentativas_atalho order by criado_em desc limit 10`);
+for (const l of Array.isArray(linhas) ? linhas : [linhas]) {
+  const campos = Object.fromEntries(Object.entries(l.formato?.campos ?? {}).map(([k, v]) => [k, String(v).split(':')[0]]));
+  console.log(`TENTATIVA ${l.hora} status=${l.status} motivo=${l.motivo ?? '-'} tipo=${l.formato?.tipo} campos=${JSON.stringify(campos)}`);
+}
+console.log(`TOTAL ${Array.isArray(linhas) ? linhas.length : JSON.stringify(linhas)}`);
