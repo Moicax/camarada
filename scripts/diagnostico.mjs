@@ -1,18 +1,11 @@
-// Só leitura: chamadas recentes às funções do servidor (horário, caminho, status). Log público: sem dados.
+// Só leitura: o código colado no Atalho é o da conta do dono? (só compara o começo; nada é mostrado)
 import { CONFIG } from '../web/config.js';
 const REF = new URL(CONFIG.supabaseUrl).hostname.split('.')[0];
-const H = { authorization: `Bearer ${process.env.SUPABASE_ACCESS_TOKEN}` };
-const consultas = {
-  borda: `select timestamp, event_message from function_edge_logs where timestamp > timestamp_sub(current_timestamp(), interval 40 minute) order by timestamp desc limit 30`,
-  funcao: `select timestamp, event_message from function_logs where timestamp > timestamp_sub(current_timestamp(), interval 40 minute) order by timestamp desc limit 30`,
-};
-const fim = new Date().toISOString();
-const inicio = new Date(Date.now() - 40 * 60000).toISOString();
-for (const [nome, q] of Object.entries(consultas)) {
-  const r = await fetch(`https://api.supabase.com/v1/projects/${REF}/analytics/endpoints/logs?sql=${encodeURIComponent(q)}&iso_timestamp_start=${inicio}&iso_timestamp_end=${fim}`, { headers: H });
-  const j = await r.json().catch(() => ({}));
-  console.log(`== ${nome}: http ${r.status} ${j.error ? JSON.stringify(j.error).slice(0, 300) : ''} ${j.message ?? ''}`);
-  for (const l of j.result ?? []) {
-    console.log(`${new Date(Number(l.timestamp) / 1000).toISOString().slice(11, 19)} ${String(l.event_message).replace(/[0-9a-f]{48}/g, '<token>').replace(/legado\/[\w-]+/g, 'legado/<seg>').slice(0, 220)}`);
-  }
-}
+const H = { authorization: `Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`, 'content-type': 'application/json' };
+const sql = async (query) => (await fetch(`https://api.supabase.com/v1/projects/${REF}/database/query`, { method: 'POST', headers: H, body: JSON.stringify({ query }) })).json();
+console.log('Começo do código bate com:', JSON.stringify(await sql(`select dono, (login is not null) as conta_por_nome, length(token_atalho) as tamanho
+  from public.perfis where token_atalho like '583f221a0db0988%'`)));
+// Simula o envio do Atalho com o código do dono, sem gravar: valor inválido → o servidor responde antes de salvar.
+const [d] = await sql(`select token_atalho from public.perfis where dono and login is not null`);
+const r = await fetch(`${CONFIG.supabaseUrl}/functions/v1/registrar-compra`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: d.token_atalho, valor: 'x' }) });
+console.log('Servidor com o código do dono:', r.status, (await r.text()).slice(0, 120));
