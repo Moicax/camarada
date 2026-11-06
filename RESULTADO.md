@@ -1,0 +1,74 @@
+## ✅ Verificação do Camarada no ar (72/72)
+
+- ✓ Site abre
+- ✓ Site aponta para o servidor novo
+- ✓ Arquivo app.js
+- ✓ Arquivo sw.js
+- ✓ Arquivo manifest.webmanifest
+- ✓ Arquivo icons/apple-touch-icon.png
+- ✓ Arquivo lib/finance.js
+- ✓ Compra com código errado é recusada
+- ✓ Avisos não rodam sem o segredo
+- ✓ Cadastro sem convite é recusado
+- ✓ Conta criada pelo servidor entra direto
+- ✓ Perfil criado no cadastro
+- ✓ Categorias iniciais
+- ✓ Salvar renda
+- ✓ App não consegue trocar o código do atalho direto
+- ✓ Criar tarefa
+- ✓ Compra do Atalho registrada
+- ✓ Compra aparece em Finanças
+- ✓ Outra pessoa não vê os dados
+- ✓ Outra pessoa não cria dados em nome de alguém
+- ✓ Outra pessoa não altera os dados
+- ✓ Outra pessoa não liga tarefa à repetição de alguém
+- ✓ Compra com cartão de débito entra como à vista
+- ✓ Meta de gastos: aviso dos 80% sai na compra
+- ✓ Meta de gastos: aviso dos 100% sai ao passar
+- ✓ Meta de gastos: o mesmo aviso não se repete
+- ✓ Meta de gastos: mudar a meta zera os avisos do mês
+- ✓ App não lê os avisos da meta direto
+- ✓ Tarefa que repete
+- ✓ Testar notificação responde
+- ✓ Ver o bom dia: monta a mensagem
+- ✓ Conta nova começa do zero (sem sequência inventada)
+- ✓ Testar notificação exige login
+- ✓ Só o dono vê as pessoas
+- ✓ Dono vê a lista de pessoas
+- ✓ Dono gera senha provisória e ela funciona
+- ✓ Criar conta com convite errado é recusado
+- ✓ Senha antiga errada é recusada
+- ✓ 20 senhas antigas erradas bloqueiam por 15 minutos
+- ✓ Notificações: aparelho que troca de conta passa a avisar só a conta nova
+- ✓ Atalho antigo do Apple Pay (endereço do site) continua funcionando
+- ✓ Endereço antigo inventado é recusado
+- ✓ Avisos do dia agendados de hora em hora
+- ✓ Lembretes por horário agendados a cada minuto
+- ✓ Avisos do dia respondem ao agendamento
+- ✓ Bom dia sai no horário escolhido
+- ✓ Bom dia sai uma vez só por dia
+- ✓ Tarefa que vence amanhã recebeu o aviso de véspera
+- ✓ Lembretes respondem ao agendamento
+- ✓ Tarefa daqui a 30 min recebeu o lembrete de 1 hora
+- ✓ App: entrada pede nome (não e-mail)
+- ✓ App: criar conta pelo link de convite
+- ✓ App: abre na aba Hoje, com saudação
+- ✓ App: tarefa criada vai para A expirar
+- ✓ App: horário aparece no prazo
+- ✓ App: concluir tarefa no prazo dá 10 pontos
+- ✓ App: renda e gasto lançados
+- ✓ App: mostra crédito e à vista
+- ✓ App: lançar R$ 50 tira R$ 50 do saldo
+- ✓ App: apagar devolve exatamente
+- ✓ App: desfazer e apagar de novo fecham a conta
+- ✓ App: entrada de R$ 200 soma no saldo
+- ✓ App: investir R$ 100 tira R$ 100 do que dá para gastar
+- ✓ App: investimento aparece nas metas do mês
+- ✓ App: reabrir já logado carrega direto
+- ✓ App: compra do Atalho aparece com o raio
+- ✓ App: selo do Netlify não cobre as abas
+- ✓ App: Compras automáticas mostra "Conectado" depois da compra pelo Atalho
+- ✓ App: texto pronto da automação já vem com o código da conta
+- ✓ App: marcar cartão de débito em Ajustes
+- ✓ App: entra com o nome e a senha do app antigo
+- ✓ App: sem erros na tela
