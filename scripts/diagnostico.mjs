@@ -10,12 +10,17 @@ console.log('Compras da última hora (todas as contas):', JSON.stringify(await s
   where g.criado_em > now() - interval '90 minutes' order by g.criado_em`)));
 console.log('Aparelhos com notificação:', JSON.stringify(await sql(`select p.dono, count(i.id)::int as n from public.perfis p left join public.inscricoes_push i on i.user_id = p.user_id join public.contas_antigas a on a.user_id = p.user_id group by p.dono`)));
 
+// teste do repasse agora (segredo inventado → 404 do servidor novo)
+const t = await fetch('https://camarada-organizador.netlify.app/api/gasto/diagnostico-repasse-123456789', { method: 'POST', body: '{"valor":"1"}' });
+console.log('Repasse do endereço antigo agora:', t.status, (await t.text()).slice(0, 80));
+await new Promise((r) => setTimeout(r, 20000));
 const q = encodeURIComponent(`select timestamp, m.function_id, r.method, r.url, resp.status_code
   from function_edge_logs cross join unnest(metadata) as m cross join unnest(m.request) as r cross join unnest(m.response) as resp
-  where timestamp > timestamp_sub(current_timestamp(), interval 90 minute) order by timestamp desc limit 40`);
+  where timestamp > timestamp_sub(current_timestamp(), interval 240 minute) order by timestamp desc limit 60`);
 const logs = await (await fetch(`https://api.supabase.com/v1/projects/${REF}/analytics/endpoints/logs.all?sql=${q}`, { headers: H })).json();
 for (const l of logs.result ?? []) {
   const quando = new Date(Number(l.timestamp) / 1000).toISOString().slice(11, 19);
   console.log(`${quando} UTC ${l.method} ${String(l.url).replace(/legado\/[\w-]+/, 'legado/<segredo>').replace(/^https?:\/\/[^/]+/, '')} → ${l.status_code}`);
 }
+console.log('linhas de log:', (logs.result ?? []).length, Object.keys(logs));
 if (logs.error) console.log('logs:', JSON.stringify(logs.error).slice(0, 300));
