@@ -16,12 +16,13 @@ const SUPABASE = process.env.SUPABASE_API_URL || 'https://api.supabase.com/v1';
 const NETLIFY = process.env.NETLIFY_API_URL || 'https://api.netlify.com/api/v1';
 const NOME_PROJETO = 'camarada-app';
 const REGIAO = 'sa-east-1'; // São Paulo
-// O app novo vai SÓ para um endereço de teste dentro do site camarada-organizador:
-// https://teste--camarada-organizador.netlify.app. O endereço principal fica com a versão antiga,
-// que as pessoas usam; esta publicação nunca o substitui (não existe "--prod" aqui).
+// Cada mudança vai SÓ para o endereço de teste dentro do site camarada-organizador:
+// https://teste--camarada-organizador.netlify.app. O endereço principal, que as pessoas usam, só
+// muda com o OK do dono (scripts/trocar-principal.mjs); esta publicação nunca o substitui.
 const SITE = 'camarada-organizador';
 const APELIDO = 'teste';
 const URL_TESTE = `https://${APELIDO}--${SITE}.netlify.app`;
+const URL_PRINCIPAL = `https://${SITE}.netlify.app`;
 const tokenSb = process.env.SUPABASE_ACCESS_TOKEN;
 const tokenNl = process.env.NETLIFY_AUTH_TOKEN;
 
@@ -123,8 +124,8 @@ async function aplicarMigracoes(ref) {
 async function configurarLogin(ref, urlSite) {
   passo('Login');
   await sb('PATCH', `/projects/${ref}/config/auth`, {
-    site_url: urlSite,
-    uri_allow_list: `${urlSite}/**`,
+    site_url: URL_PRINCIPAL,
+    uri_allow_list: `${URL_PRINCIPAL}/**,${urlSite}/**`,
     // O e-mail gratuito do Supabase só envia para membros da equipe; sem isso ninguém conseguiria entrar.
     mailer_autoconfirm: true,
     // Como no app antigo: conta nova só pelo link de convite (a função "contas" cria a conta).

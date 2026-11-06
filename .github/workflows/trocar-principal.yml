@@ -1,0 +1,25 @@
+# Leva o app único para o endereço principal. Só roda com o OK do dono (envio para o ramo trocar-principal).
+name: Trocar endereço principal
+on:
+  push:
+    branches: [trocar-principal]
+permissions:
+  contents: read
+concurrency:
+  group: publicar
+  cancel-in-progress: false
+jobs:
+  trocar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+      - run: npm i --no-save @netlify/blobs@8.1.0
+      - run: node scripts/trocar-principal.mjs
