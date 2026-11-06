@@ -1,0 +1,19 @@
+# Compra de teste (R$ 1,00) na conta do dono; apaga sozinha depois de 15 minutos.
+name: Compra de teste
+on:
+  push:
+    branches: [teste-compra]
+permissions:
+  contents: read
+jobs:
+  testar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/teste-compra.mjs
