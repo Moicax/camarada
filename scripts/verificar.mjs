@@ -156,6 +156,8 @@ async function testarServidor() {
   // Botão "Testar notificação": com login responde; sem login é recusado.
   const { data: tn, error: etn } = await a.cliente.functions.invoke('notificar', { body: { tipo: 'teste' } });
   conferir('Testar notificação responde', !etn && tn?.ok === true, etn?.message ?? JSON.stringify(tn));
+  const { data: bd, error: ebd } = await a.cliente.functions.invoke('notificar', { body: { tipo: 'bomdia' } });
+  conferir('Ver o bom dia: monta a mensagem', !ebd && /^(Bom dia|Boa tarde|Boa noite)/.test(bd?.titulo ?? '') && /pontos/.test(bd?.corpo ?? ''), ebd?.message ?? `${bd?.titulo} ${bd?.corpo}`);
   const semLogin = await fetch(`${URL_SB}/functions/v1/notificar`, { method: 'POST', body: JSON.stringify({ tipo: 'teste' }) });
   conferir('Testar notificação exige login', semLogin.status === 401, String(semLogin.status));
 }
@@ -192,6 +194,10 @@ async function testarAvisos() {
   await contaA.cliente.from('perfis').update({ horario_aviso: agoraEm().h }).eq('user_id', contaA.id);
   const diario = await rodarAgendamento('camarada-avisos');
   conferir('Avisos do dia respondem ao agendamento', diario?.status_code === 200, diario ? `${diario.status_code} ${diario.content}` : 'não chamou');
+  const bomdias = async () => (await sql(`select count(*)::int as n from public.avisos_enviados e join auth.users u on u.id = e.user_id where u.email = '${email('a')}' and e.chave like 'bomdia-%'`))[0].n;
+  conferir('Bom dia sai no horário escolhido', (await bomdias()) === 1 && /"bomdia"/.test(diario?.content ?? ''), diario?.content);
+  await rodarAgendamento('camarada-avisos');
+  conferir('Bom dia sai uma vez só por dia', (await bomdias()) === 1);
   const { data: luz } = await contaA.cliente.from('tarefas').select('avisos_enviados').eq('titulo', 'Conta de luz (teste)').single();
   conferir('Tarefa que vence amanhã recebeu o aviso de véspera', (luz?.avisos_enviados ?? []).includes('vespera'), JSON.stringify(luz));
 
@@ -239,8 +245,11 @@ async function testarApp() {
     await p.fill('input[name=email]', email('c'));
     await p.fill('input[name=senha]', SENHA);
     await p.click('button[type=submit]');
-    await p.waitForSelector('.segmentos', { timeout: 20000 });
+    await p.waitForSelector('.camarada-cartao', { timeout: 20000 });
     conferir('App: criar conta pela tela', true);
+    conferir('App: abre na aba Hoje, com saudação', /^(Bom dia|Boa tarde|Boa noite)/.test(await p.locator('.topo h1').innerText()));
+    await p.click('[data-tela=tarefas]');
+    await p.waitForSelector('.segmentos', { timeout: 15000 });
 
     await p.click('[data-acao=nova-tarefa]');
     await p.fill('#folha input[name=titulo]', 'Pagar conta de luz');
@@ -252,6 +261,17 @@ async function testarApp() {
     await p.waitForTimeout(500);
     conferir('App: tarefa criada vai para Vencendo', (await p.locator('[aria-selected=true]').innerText()).includes('Vencendo'));
     conferir('App: horário aparece no prazo', (await p.locator('.lista').innerText()).includes('Vence amanhã às 18h'));
+    await p.locator('.linha .marcar').first().click();
+    await p.click('.dialogo [data-r="1"]');
+    await p.waitForTimeout(1200);
+    await p.click('[data-tela=hoje]');
+    await p.waitForSelector('.camarada-cartao', { timeout: 15000 });
+    await p.waitForTimeout(800);
+    const pontos = Number(await p.locator('.cc-num').innerText());
+    conferir('App: concluir tarefa no prazo dá 10 pontos', pontos === 10, `${pontos} pontos`);
+    await foto('2b-hoje');
+    await p.click('[data-tela=tarefas]');
+    await p.waitForSelector('.segmentos', { timeout: 15000 });
     await foto('2-tarefas');
 
     await p.click('[data-tela=financas]');

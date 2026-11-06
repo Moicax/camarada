@@ -694,3 +694,72 @@ button.mini .legenda { color: var(--texto-3); }
 }
 .tres-segmentos input:checked + span { background: var(--superficie); color: var(--texto); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04); }
 .tres-segmentos input:focus-visible + span { outline: 2px solid var(--texto); outline-offset: 2px; }
+
+/* ---------- Hoje: o Camarada ---------- */
+.barra-base { width: min(calc(100% - 32px), 400px); }
+
+.camarada-cartao {
+  position: relative; overflow: hidden; border-radius: 26px; padding: 20px 22px 16px; margin: 4px 0 14px;
+  color: #f4f4f5;
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgba(255, 255, 255, 0.10), transparent 55%),
+    linear-gradient(160deg, #232326 0%, #111113 100%);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+}
+@media (prefers-color-scheme: dark) {
+  .camarada-cartao { background: radial-gradient(120% 90% at 100% 0%, rgba(255, 255, 255, 0.08), transparent 55%), linear-gradient(160deg, #1d1d20 0%, #121214 100%); border: 0.5px solid rgba(255, 255, 255, 0.08); }
+}
+.cc-topo { display: flex; justify-content: space-between; align-items: center; }
+.cc-rotulo { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255, 255, 255, 0.6); }
+.cc-seq {
+  display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.10); font-size: 13px; font-weight: 600; color: #ffb37a;
+}
+.cc-seq .ic { width: 15px; height: 15px; stroke-width: 1.8; }
+.cc-pontos { display: flex; align-items: baseline; gap: 8px; margin: 10px 0 12px; }
+.cc-num { font-size: 52px; font-weight: 500; letter-spacing: -0.05em; line-height: 1; color: #fff; }
+.cc-meta { font-size: 15px; font-weight: 500; color: rgba(255, 255, 255, 0.55); }
+.cc-barra { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
+.cc-barra > span { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, #ffd48a, #ffb37a); }
+.camarada-cartao.liberada .cc-barra > span { background: linear-gradient(90deg, #7be0a8, #4cc38a); }
+.cc-recompensa {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; margin-top: 14px;
+  font-size: 14px; font-weight: 500; color: rgba(255, 255, 255, 0.72);
+}
+.cc-recompensa .ic { width: 18px; height: 18px; flex: none; color: #ffd48a; }
+.cc-recompensa strong { color: #fff; font-weight: 600; }
+.camarada-cartao.liberada .cc-recompensa .ic { color: #7be0a8; }
+
+.conselho {
+  display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; margin-bottom: 4px;
+  background: var(--superficie); border-radius: var(--raio); box-shadow: var(--sombra);
+}
+.conselho-avatar { width: 32px; height: 32px; border-radius: 9px; flex: none; }
+.conselho p { margin: 0; font-size: 15px; font-weight: 500; line-height: 1.4; color: var(--texto-2); }
+
+.tarefa-hoje { gap: 12px; padding: 8px 14px; }
+.tarefa-hoje .marcar { width: 28px; height: 28px; }
+.tarefa-hoje-texto { flex: 1; min-width: 0; text-align: left; padding: 4px 0; }
+.tarefa-hoje-texto strong { display: block; font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tarefa-hoje-texto small { font-size: 13px; font-weight: 500; }
+.vazio-hoje { color: var(--texto-3); font-weight: 500 !important; }
+.valor-dir.ruim { color: var(--vermelho); }
+.valor-dir.atencao { color: var(--laranja); }
+
+.item.evento { gap: 12px; min-height: 48px; }
+.ev-pontos {
+  flex: none; min-width: 40px; padding: 3px 0; border-radius: 8px; text-align: center;
+  font-size: 13px; font-weight: 700; color: var(--verde); background: color-mix(in srgb, var(--verde-forte) 12%, transparent);
+}
+.item.evento .rotulo { font-weight: 500; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item.evento .valor-dir { font-size: 13px; }
+
+.comemoracao .dialogo-texto { padding-top: 24px; }
+.trofeu-grande {
+  width: 64px; height: 64px; margin: 0 auto 12px; border-radius: 20px; display: grid; place-items: center;
+  background: linear-gradient(160deg, #ffd48a, #ffb37a); color: #3a2400;
+  animation: pular 0.6s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.trofeu-grande .ic { width: 34px; height: 34px; stroke-width: 1.6; }
+@keyframes pular { from { transform: scale(0.4) rotate(-12deg); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .trofeu-grande { animation: none; } }

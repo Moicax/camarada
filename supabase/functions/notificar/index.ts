@@ -7,10 +7,12 @@
 //  - "teste"     (botão "Testar notificação" no app): manda um aviso de teste para a própria pessoa.
 //  - "meta"      (o app chama depois de lançar algo): confere a meta de gastos da própria pessoa e
 //                avisa aos 80% e aos 100%. O "diario" também confere a meta de todos, como garantia.
+//  - "bomdia"    (botão "Ver o bom dia" no app): manda agora o bom dia da própria pessoa.
+//                O bom dia de verdade sai no "diario", na hora escolhida, antes dos outros avisos.
 //
 // Publicar com: supabase functions deploy notificar --no-verify-jwt
 // "diario" e "lembretes" exigem o cabeçalho x-cron-secret (variável CRON_SECRET);
-// "teste" e "meta" exigem o login da pessoa (Authorization: Bearer <token do app>).
+// "teste", "meta" e "bomdia" exigem o login da pessoa (Authorization: Bearer <token do app>).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { somarDias } from '../_shared/dates.js';
 import {
@@ -18,6 +20,7 @@ import {
 } from '../_shared/tasks.js';
 import { enviarPush } from '../_shared/push.ts';
 import { conferirMeta } from '../_shared/meta.ts';
+import { bomDia, mensagemDoDia } from '../_shared/bomdia.ts';
 
 const FUSO = 'America/Sao_Paulo';
 const SEGREDO = Deno.env.get('CRON_SECRET');
@@ -165,6 +168,14 @@ Deno.serve(async (req) => {
 
   try {
     if (tipo === 'teste') return await teste(req);
+    if (tipo === 'bomdia') {
+      const user = await usuarioDoPedido(req);
+      if (!user) return resposta(401, { ok: false, erro: 'Entre na sua conta de novo.' });
+      const { hoje, hora } = agora();
+      const msg = await mensagemDoDia(supabase, user.id, hoje, hora);
+      const enviados = await enviarPush(supabase, user.id, { ...msg, url: '/#hoje', tag: 'bomdia-teste' });
+      return resposta(200, { ok: true, tipo, ...msg, enviados });
+    }
     if (tipo === 'meta') {
       const user = await usuarioDoPedido(req);
       if (!user) return resposta(401, { ok: false, erro: 'Entre na sua conta de novo.' });
@@ -173,8 +184,10 @@ Deno.serve(async (req) => {
     if (!SEGREDO || req.headers.get('x-cron-secret') !== SEGREDO) return resposta(401, { ok: false, erro: 'Não autorizado' });
     if (tipo === 'lembretes') return resposta(200, { ok: true, tipo, ...(await lembretes()) });
     if (tipo === 'diario') {
+      const { hoje, hora } = agora();
+      const bomdia = await bomDia(supabase, hoje, hora);
       const resultado = await diario();
-      return resposta(200, { ok: true, tipo, ...resultado, metasAvisadas: await metasDeTodos() });
+      return resposta(200, { ok: true, tipo, ...resultado, bomdia, metasAvisadas: await metasDeTodos() });
     }
     return resposta(400, { ok: false, erro: `Tipo desconhecido: ${tipo}` });
   } catch (e) {

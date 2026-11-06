@@ -76,7 +76,7 @@ async function criarApiSupabase() {
     },
 
     async perfil() {
-      return ok(await sb.from('perfis').select('nome, renda_mensal, token_atalho, horario_aviso, meta_gasto, meta_investimento').single());
+      return ok(await sb.from('perfis').select('nome, renda_mensal, token_atalho, horario_aviso, meta_gasto, meta_investimento, recompensa_texto, recompensa_pontos, bom_dia').single());
     },
     async salvarPerfil(campos) {
       const { data: { user } } = await sb.auth.getUser();
@@ -122,6 +122,20 @@ async function criarApiSupabase() {
         .order('data', { ascending: false }));
       return linhas.map(({ cartoes, ...g }) => ({ ...g, valor: Number(g.valor), cartao: cartoes?.nome ?? null }));
     },
+    /** Lançamentos desde um dia (AAAA-MM-DD, meia-noite daqui): base dos pontos e da sequência. */
+    async gastosDesde(dia) {
+      const [a, m, d] = dia.split('-').map(Number);
+      const linhas = ok(await sb.from('gastos')
+        .select('id, valor, estabelecimento, data, origem, forma, investimento, cartoes(nome)')
+        .gte('data', new Date(a, m - 1, d).toISOString())
+        .order('data', { ascending: false }));
+      return linhas.map(({ cartoes, ...g }) => ({ ...g, valor: Number(g.valor), cartao: cartoes?.nome ?? null }));
+    },
+    /** Renda específica de alguns meses (quando difere da renda padrão): { 'AAAA-MM': valor }. */
+    async rendasDe(meses) {
+      const linhas = ok(await sb.from('rendas_mes').select('mes, valor').in('mes', meses));
+      return Object.fromEntries(linhas.map((r) => [r.mes, Number(r.valor)]));
+    },
     async cartoes() {
       return ok(await sb.from('cartoes').select('id, nome').order('nome')).map((c) => c.nome);
     },
@@ -159,6 +173,11 @@ async function criarApiSupabase() {
       ok(await sb.from('gastos').update({ forma: debito ? 'avista' : 'credito' }).eq('cartao_id', id).eq('origem', 'atalho'));
     },
     /** Confere a meta de gastos no servidor (ele avisa aos 80% e aos 100%, uma vez por mês cada). */
+    async bomDia() {
+      const { data, error } = await sb.functions.invoke('notificar', { body: { tipo: 'bomdia' } });
+      if (error) throw new Error('Não foi possível montar o bom dia agora.');
+      return data;
+    },
     async conferirMeta() {
       const { data, error } = await sb.functions.invoke('notificar', { body: { tipo: 'meta' } });
       if (error) throw error;
@@ -183,7 +202,7 @@ async function criarApiSupabase() {
 // ---------------------------------------------------------------- Demonstração
 
 function criarApiDemo() {
-  const CHAVE = 'camarada-demo-v3';
+  const CHAVE = 'camarada-demo-v4';
   const novoId = () => Math.random().toString(36).slice(2, 10);
   const hoje = diaLocal();
   const quando = (dias, hora) => {
@@ -195,7 +214,7 @@ function criarApiDemo() {
     const cat = { contas: novoId(), docs: novoId(), geral: novoId() };
     return {
       usuario: null,
-      perfil: { nome: 'Você', renda_mensal: 3500, token_atalho: 'demo'.padEnd(48, '0'), horario_aviso: 9, meta_gasto: 1000, meta_investimento: 500 },
+      perfil: { nome: 'Você', renda_mensal: 3500, token_atalho: 'demo'.padEnd(48, '0'), horario_aviso: 9, meta_gasto: 1000, meta_investimento: 500, recompensa_texto: 'Pizza no sábado', recompensa_pontos: 100, bom_dia: true },
       categorias: [
         { id: cat.contas, nome: 'Contas', aviso_dias: 5 },
         { id: cat.docs, nome: 'Documentos', aviso_dias: 15 },
@@ -205,6 +224,8 @@ function criarApiDemo() {
         { id: novoId(), titulo: 'Pagar conta de luz', vencimento: somarDias(hoje, 1), hora: '18:00', categoria_id: cat.contas },
         { id: novoId(), titulo: 'Aluguel', vencimento: somarDias(hoje, 3), categoria_id: cat.contas, recorrencia: 'mensal', dia_original: Number(somarDias(hoje, 3).slice(8, 10)) },
         { id: novoId(), titulo: 'Organizar o armário', vencimento: null, categoria_id: cat.geral },
+        { id: novoId(), titulo: 'Pagar academia', vencimento: somarDias(hoje, -1), categoria_id: cat.contas, concluida_em: quando(-1, '19:00') },
+        { id: novoId(), titulo: 'Marcar dentista', vencimento: null, categoria_id: cat.geral, concluida_em: quando(0, '08:30') },
         { id: novoId(), titulo: 'Fatura do cartão', vencimento: somarDias(hoje, 4), categoria_id: cat.contas },
         { id: novoId(), titulo: 'Internet', vencimento: somarDias(hoje, -1), categoria_id: cat.contas },
         { id: novoId(), titulo: 'Renovar CNH', vencimento: somarDias(hoje, 40), categoria_id: cat.docs },
@@ -294,6 +315,15 @@ function criarApiDemo() {
       return copia(db.gastos.filter((g) => g.data >= inicio && g.data < fim))
         .sort((a, b) => b.data.localeCompare(a.data));
     },
+    async gastosDesde(dia) {
+      const [a, m, d] = dia.split('-').map(Number);
+      const inicio = new Date(a, m - 1, d).toISOString();
+      return copia(db.gastos.filter((g) => g.data >= inicio));
+    },
+    async rendasDe(meses) {
+      return Object.fromEntries(meses.filter((m) => db.rendas[m] !== undefined).map((m) => [m, db.rendas[m]]));
+    },
+    async bomDia() { return null; },
     async cartoes() {
       db.debito ??= {};
       return [...new Set(db.gastos.map((g) => g.cartao).filter(Boolean))].sort()

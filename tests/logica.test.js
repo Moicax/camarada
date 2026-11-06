@@ -175,7 +175,7 @@ test('nomeCartao', () => {
 // ---------- cópias usadas no servidor ----------
 
 test('as funções do servidor usam exatamente a mesma lógica do app', () => {
-  for (const f of ['dates.js', 'tasks.js', 'finance.js']) {
+  for (const f of ['dates.js', 'tasks.js', 'finance.js', 'camarada.js']) {
     const app = readFileSync(new URL(`../web/lib/${f}`, import.meta.url), 'utf8');
     const servidor = readFileSync(new URL(`../supabase/functions/_shared/${f}`, import.meta.url), 'utf8');
     assert.equal(servidor, app, `${f} está diferente; rode: npm run sync`);

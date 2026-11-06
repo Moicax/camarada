@@ -28,6 +28,12 @@ Cada pessoa cria a própria conta e só enxerga os próprios dados.
 - **Compras automáticas**: cada compra com Apple Pay entra sozinha, com uma notificação ("R$ 23,90 · Padaria — hoje ainda dá para gastar R$ 79,61"). Funciona com um atalho do iPhone configurado uma vez ([docs/ATALHO.md](docs/ATALHO.md)).
 - Lançamento manual para compras sem Apple Pay.
 
+**Camarada (aba Hoje)**
+- Saudação, conselho do dia e o que vence hoje, quanto dá para gastar e como estão as metas.
+- **Pontos da semana**: tarefa no prazo +10 (atrasada +5), dia dentro do limite +5, dia com investimento +15. Calculados a partir do que você fez: reabrir uma tarefa tira os pontos dela.
+- **Sequência** de dias seguidos fazendo o que precisa e **recompensa da semana** definida por você (ex.: "Pizza no sábado" com 100 pontos). O app comemora quando você chega lá.
+- **Bom dia do Camarada**: uma notificação no horário dos avisos com o resumo do dia.
+
 ## Como é feito
 
 | Parte | Onde roda | Custo |

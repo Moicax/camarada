@@ -6,6 +6,7 @@ import {
   separar, rotuloPrazo, OPCOES_ADIAR, adiar, AVISO_PADRAO, RECORRENCIAS, proximaOcorrencia, normalizarHora,
 } from './lib/tasks.js';
 import { resumoMes, formatarReal, lerValor, nomeCartao, FORMAS, tipoDe } from './lib/finance.js';
+import { resumoCamarada, conselho, cumprimento, contarHoje } from './lib/camarada.js';
 
 // ---------------------------------------------------------------- utilidades
 
@@ -19,7 +20,8 @@ const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform 
 const estado = {
   usuario: null,
   iniciado: false,
-  tela: 'tarefas',
+  tela: 'hoje',
+  historico: { gastos: [], rendas: {} },
   aba: null,
   perfil: null,
   categorias: [],
@@ -126,11 +128,55 @@ function nivelDaMeta(gastos) {
   return r.metaGasto?.nivel ?? null;
 }
 
-async function atualizarAlertaMeta() {
-  if (!(Number(estado.perfil?.meta_gasto) > 0)) { estado.alertaMeta = null; return; }
+/** Gastos do mês anterior e do atual: base dos pontos, da sequência e do alerta da meta. */
+async function carregarHistorico() {
+  const mesAtual = chaveMes(hoje());
+  const anterior = mudarMes(mesAtual, -1);
   try {
-    estado.alertaMeta = nivelDaMeta(await api.gastosDoMes(chaveMes(hoje())));
-  } catch { /* sem conexão: mantém */ }
+    const [gastos, rendas] = await Promise.all([api.gastosDesde(`${anterior}-01`), api.rendasDe([anterior, mesAtual])]);
+    estado.historico = { gastos, rendas };
+    estado.alertaMeta = Number(estado.perfil?.meta_gasto) > 0
+      ? nivelDaMeta(gastos.filter((g) => chaveMes(diaLocal(new Date(g.data))) === mesAtual))
+      : null;
+  } catch (e) { console.warn('Histórico não carregado', e); }
+}
+
+const rendaDe = (mes) => Number(estado.historico.rendas[mes] ?? estado.perfil?.renda_mensal ?? 0);
+
+function camaradaAgora() {
+  return resumoCamarada({
+    tarefas: estado.tarefas,
+    gastos: estado.historico.gastos,
+    rendaDe,
+    hoje: hoje(),
+    metaPontos: estado.perfil?.recompensa_pontos,
+    recompensa: estado.perfil?.recompensa_texto,
+  });
+}
+
+/** Bateu os pontos da semana: comemora (uma vez por semana neste aparelho). */
+function verificarRecompensa() {
+  if (!estado.perfil || !estado.usuario) return;
+  const c = camaradaAgora();
+  if (!c.liberada) return;
+  const chave = `camarada-comemorou-${c.semana.de}`;
+  try {
+    if (localStorage.getItem(chave)) return;
+    localStorage.setItem(chave, '1');
+  } catch { return; }
+  const camada = document.createElement('div');
+  camada.className = 'camada centro';
+  camada.innerHTML = `
+    <div class="dialogo comemoracao" role="alertdialog" aria-modal="true" aria-labelledby="com-t">
+      <div class="dialogo-texto">
+        <div class="trofeu-grande">${ic.trofeu}</div>
+        <h3 id="com-t">Recompensa liberada!</h3>
+        <p>Você fez ${c.pontos} pontos nesta semana.${c.recompensa ? ` Aproveite: <strong>${esc(c.recompensa)}</strong>` : ' Defina sua recompensa em Ajustes.'}</p>
+      </div>
+      <div class="dialogo-botoes"><button type="button">Valeu, camarada!</button></div>
+    </div>`;
+  camada.addEventListener('click', (e) => { if (e.target === camada || e.target.closest('button')) camada.remove(); });
+  document.body.append(camada);
 }
 
 async function carregarTudo() {
@@ -138,13 +184,14 @@ async function carregarTudo() {
   Object.assign(estado, { perfil, categorias, tarefas });
   if (!estado.aba) estado.aba = abasTarefas().vencendo.length ? 'vencendo' : 'pendentes';
   atualizarBadge();
-  await atualizarAlertaMeta();
+  await carregarHistorico();
 }
 
 async function recarregarTarefas() {
   estado.tarefas = await api.tarefas();
   atualizarBadge();
   render();
+  verificarRecompensa();
 }
 
 async function carregarFinancas() {
@@ -157,6 +204,7 @@ async function carregarFinancas() {
   Object.assign(estado, { gastos, rendaMes, cartoes, automaticas, carregandoFinancas: false });
   if (mes === chaveMes(hoje())) estado.alertaMeta = nivelDaMeta(gastos);
   render();
+  carregarHistorico().then(verificarRecompensa);
 }
 
 // ---------------------------------------------------------------- tela de entrada
@@ -239,6 +287,154 @@ async function enviarEntrada(form) {
     estado.entrada.erro = e.message;
     render();
   }
+}
+
+// ---------------------------------------------------------------- tela Hoje (o Camarada)
+
+function saudacao() {
+  const nome = (estado.perfil?.nome ?? '').trim().split(/\s+/)[0];
+  return `${cumprimento(new Date().getHours())}${nome && nome !== 'Você' ? `, ${nome}` : ''}`;
+}
+
+const TEXTO_EVENTO = {
+  tarefa: (e) => e.texto,
+  'tarefa-atrasada': (e) => `${e.texto} (atrasada)`,
+  limite: () => 'Dia dentro do limite',
+  investimento: () => 'Dia com investimento',
+};
+
+function linhaEvento(e) {
+  return `
+    <li><div class="item evento">
+      <span class="ev-pontos">+${e.pontos}</span>
+      <span class="rotulo">${esc(TEXTO_EVENTO[e.tipo](e))}</span>
+      <span class="valor-dir">${rotuloDia(e.dia, hoje()).split(',')[0]}</span>
+    </div></li>`;
+}
+
+function linhaHoje(t) {
+  const h = hoje();
+  const atrasada = t.vencimento < h;
+  return `
+    <li><div class="item tarefa-hoje">
+      <button class="marcar" data-acao="concluir" data-id="${t.id}" aria-label="Concluir ${esc(t.titulo)}">${ic.circulo}</button>
+      <button class="tarefa-hoje-texto" data-acao="editar-tarefa" data-id="${t.id}">
+        <strong>${esc(t.titulo)}</strong>
+        <small class="${atrasada ? 'prazo-atrasado' : 'prazo-urgente'}">${rotuloPrazo(t.vencimento, h, t.hora)}</small>
+      </button>
+    </div></li>`;
+}
+
+function telaHoje() {
+  const h = hoje();
+  const c = camaradaAgora();
+  const { atrasadas, vencemHoje } = contarHoje(estado.tarefas, h);
+  const mesAtual = chaveMes(h);
+  const temRenda = rendaDe(mesAtual) > 0;
+  const fin = resumoMes({ renda: rendaDe(mesAtual), gastos: estado.historico.gastos, mes: mesAtual, hoje: h, ...metasDoPerfil() });
+  const frase = conselho({
+    atrasadas, vencemHoje, nivelMeta: fin.metaGasto?.nivel ?? null, restaHoje: temRenda ? fin.restaHoje : null, camarada: c,
+  });
+  const paraHoje = estado.tarefas
+    .filter((t) => !t.concluida_em && t.vencimento && t.vencimento <= h)
+    .sort((a, b) => (a.vencimento + (a.hora || '24')).localeCompare(b.vencimento + (b.hora || '24')));
+  const recompensa = c.liberada
+    ? `${ic.trofeu}<span>Recompensa liberada${c.recompensa ? `: <strong>${esc(c.recompensa)}</strong>` : '!'}</span>`
+    : c.recompensa
+      ? `${ic.presente}<span>Faltam ${c.falta} pontos para: <strong>${esc(c.recompensa)}</strong></span>`
+      : `${ic.presente}<span>Defina sua recompensa da semana ›</span>`;
+  const mg = fin.metaGasto;
+  const mi = fin.metaInvestimento;
+  return `
+    <div class="camarada-cartao ${c.liberada ? 'liberada' : ''}">
+      <div class="cc-topo">
+        <span class="cc-rotulo">Sua semana</span>
+        <span class="cc-seq" title="Dias seguidos fazendo o que precisa">${ic.fogo}${c.sequencia} ${c.sequencia === 1 ? 'dia' : 'dias'}</span>
+      </div>
+      <div class="cc-pontos"><span class="cc-num">${c.pontos}</span><span class="cc-meta">de ${c.meta} pontos</span></div>
+      <div class="cc-barra" role="progressbar" aria-valuenow="${c.pontos}" aria-valuemin="0" aria-valuemax="${c.meta}" aria-label="Pontos da semana"><span style="width:${Math.round(c.pct * 100)}%"></span></div>
+      <button class="cc-recompensa" data-acao="recompensa">${recompensa}</button>
+    </div>
+
+    <div class="conselho">
+      <img src="icons/icon-192.png" alt="" class="conselho-avatar">
+      <p>${esc(frase)}</p>
+    </div>
+
+    <h3 class="grupo-titulo">Para hoje</h3>
+    <div class="grupo"><ul class="lista">
+      ${paraHoje.length ? paraHoje.slice(0, 5).map(linhaHoje).join('') : '<li><div class="item"><span class="rotulo vazio-hoje">Nada vencendo hoje</span></div></li>'}
+      <li><button class="item" data-acao="tela" data-tela="tarefas"><span class="rotulo">${paraHoje.length > 5 ? `Ver mais ${paraHoje.length - 5}` : 'Ver todas as tarefas'}</span><span class="valor-dir">›</span></button></li>
+    </ul></div>
+
+    <h3 class="grupo-titulo">Dinheiro</h3>
+    <div class="grupo"><ul class="lista">
+      <li><button class="item" data-acao="tela" data-tela="financas"><span class="rotulo">Para gastar hoje</span>
+        <span class="valor-dir ${temRenda && fin.restaHoje < 0 ? 'ruim' : ''}">${temRenda ? formatarReal(fin.restaHoje) : 'informe a renda'} ›</span></button></li>
+      ${mg ? `<li><button class="item" data-acao="metas"><span class="rotulo">${mg.nivel ? '<span class="sinal-meta">!</span> ' : ''}Meta de gastos</span>
+        <span class="valor-dir ${mg.nivel === 100 ? 'ruim' : mg.nivel === 80 ? 'atencao' : ''}">${Math.round(mg.pct * 100)}% usada ›</span></button></li>` : ''}
+      ${mi ? `<li><button class="item" data-acao="metas"><span class="rotulo">Investido</span>
+        <span class="valor-dir">${formatarReal(mi.investido)} de ${formatarReal(mi.meta)} ›</span></button></li>` : ''}
+    </ul></div>
+
+    <h3 class="grupo-titulo">Pontos da semana</h3>
+    <div class="grupo"><ul class="lista">
+      ${c.eventos.length ? c.eventos.map(linhaEvento).join('') : '<li><div class="item"><span class="rotulo vazio-hoje">Ainda sem pontos nesta semana</span></div></li>'}
+    </ul></div>
+    <p class="dica" style="text-align:left;margin:-10px 4px 0">Tarefa no prazo +10 · atrasada +5 · dia dentro do limite +5 · dia com investimento +15. A semana vai de segunda a domingo.</p>`;
+}
+
+function folhaRecompensa() {
+  const p = estado.perfil;
+  abrirFolha(`
+    <form>
+      <div class="folha-topo"><button type="button" data-fechar>Cancelar</button><h2>Recompensa da semana</h2><button type="submit">Salvar</button></div>
+      <div class="grupo">
+        <div class="campo bloco"><input name="texto" maxlength="80" placeholder="Ex.: pizza no sábado, um filme, um doce" value="${esc(p.recompensa_texto)}" autofocus></div>
+        <div class="campo"><label for="r-pontos">Com</label><input id="r-pontos" name="pontos" type="number" inputmode="numeric" min="10" max="10000" value="${Number(p.recompensa_pontos) || 100}"><span style="font-weight:600">pontos</span></div>
+      </div>
+      <p class="dica" style="margin:-10px 4px 14px;text-align:left">Uma semana boa dá uns 100 pontos: 5 tarefas no prazo (50), 7 dias dentro do limite (35) e um investimento (15). Quando você chegar lá, o Camarada comemora com você.</p>
+      <p class="erro" hidden></p>
+    </form>`,
+  (el, fechar) => {
+    el.querySelector('[data-fechar]').onclick = fechar;
+    el.querySelector('form').onsubmit = async (e) => {
+      e.preventDefault();
+      const d = Object.fromEntries(new FormData(e.target));
+      const pontos = Number(d.pontos);
+      if (!Number.isInteger(pontos) || pontos < 10 || pontos > 10000) {
+        const erro = el.querySelector('.erro');
+        erro.textContent = 'Escolha entre 10 e 10.000 pontos.';
+        erro.hidden = false;
+        return;
+      }
+      const texto = d.texto.trim() || null;
+      fechar();
+      await tentar(async () => {
+        await api.salvarPerfil({ recompensa_texto: texto, recompensa_pontos: pontos });
+        Object.assign(estado.perfil, { recompensa_texto: texto, recompensa_pontos: pontos });
+      }, 'Recompensa salva');
+      render();
+      verificarRecompensa();
+    };
+  });
+}
+
+async function verBomDia() {
+  await tentar(async () => {
+    const r = await api.bomDia();
+    if (!r) return aviso('O bom dia funciona na versão publicada.');
+    const camada = document.createElement('div');
+    camada.className = 'camada centro';
+    camada.innerHTML = `
+      <div class="dialogo" role="alertdialog" aria-modal="true" aria-labelledby="bd-t">
+        <div class="dialogo-texto"><h3 id="bd-t">${esc(r.titulo)}</h3><p>${esc(r.corpo)}</p>
+        ${r.enviados ? '<p class="dica" style="margin:10px 0 0">Também chegou como notificação.</p>' : ''}</div>
+        <div class="dialogo-botoes"><button type="button">OK</button></div>
+      </div>`;
+    camada.addEventListener('click', (e) => { if (e.target === camada || e.target.closest('button')) camada.remove(); });
+    document.body.append(camada);
+  });
 }
 
 // ---------------------------------------------------------------- tela Tarefas
@@ -968,6 +1164,14 @@ function telaAjustes() {
       <div class="item"><span class="rotulo">${esc(p.nome || 'Sem nome')}</span><span class="valor-dir">${esc(estado.usuario.email)}</span></div>
     </div>
 
+    <h3 class="grupo-titulo">Camarada</h3>
+    <div class="grupo"><ul class="lista">
+      <li><button class="item" data-acao="recompensa"><span class="rotulo">Recompensa da semana</span><span class="valor-dir">${p.recompensa_texto ? esc(p.recompensa_texto.length > 18 ? `${p.recompensa_texto.slice(0, 17)}…` : p.recompensa_texto) : 'definir'} ›</span></button></li>
+      <li><label class="item"><span class="rotulo">Bom dia do Camarada</span><input type="checkbox" class="chave" data-mudar="bom-dia" ${p.bom_dia !== false ? 'checked' : ''} aria-label="Bom dia do Camarada"></label></li>
+      <li><button class="item acao" data-acao="ver-bom-dia">Ver o bom dia agora</button></li>
+    </ul></div>
+    <p class="dica" style="text-align:left;margin:-10px 4px 0">Todo dia, no horário dos avisos, um resumo: tarefas, quanto dá para gastar, seus pontos e um conselho.</p>
+
     <h3 class="grupo-titulo">Finanças</h3>
     <div class="grupo"><ul class="lista">
       <li><button class="item" data-acao="renda-padrao"><span class="rotulo">Renda mensal</span><span class="valor-dir">${formatarReal(Number(p.renda_mensal))} ›</span></button></li>
@@ -1096,6 +1300,7 @@ async function renovarInscricao() {
 // ---------------------------------------------------------------- estrutura e navegação
 
 const TELAS = {
+  hoje: { titulo: 'Hoje', icone: ic.hoje, render: telaHoje, cabecalho: () => saudacao() },
   tarefas: { titulo: 'Tarefas', icone: ic.tarefas, render: telaTarefas, novo: 'nova-tarefa' },
   financas: { titulo: 'Finanças', icone: ic.carteira, render: telaFinancas, novo: 'novo-gasto' },
   ajustes: { titulo: 'Ajustes', icone: ic.ajustes, render: telaAjustes },
@@ -1118,9 +1323,9 @@ function render() {
   raiz.innerHTML = `
     <div class="app">
       <header class="topo">
-        ${estado.tela === 'tarefas' ? `<p class="topo-data">${dataDeHoje()}</p>` : ''}
+        ${estado.tela === 'tarefas' || estado.tela === 'hoje' ? `<p class="topo-data">${dataDeHoje()}</p>` : ''}
         <div class="topo-linha">
-          <h1>${tela.titulo}</h1>
+          <h1>${tela.cabecalho ? esc(tela.cabecalho()) : tela.titulo}</h1>
           ${tela.novo ? `<button class="btn-redondo" data-acao="${tela.novo}" aria-label="Adicionar">${ic.mais}</button>` : ''}
         </div>
       </header>
@@ -1136,7 +1341,7 @@ function render() {
 }
 
 function irPara(tela) {
-  if (!TELAS[tela]) tela = 'tarefas';
+  if (!TELAS[tela]) tela = 'hoje';
   const mudou = estado.tela !== tela;
   estado.tela = tela;
   if (location.hash !== `#${tela}`) history.replaceState(null, '', `#${tela}`);
@@ -1158,6 +1363,14 @@ async function testarNotificacao() {
 }
 
 const MUDANCAS = {
+  'bom-dia': async (el) => {
+    const ligado = el.checked;
+    const ok = await tentar(async () => {
+      await api.salvarPerfil({ bom_dia: ligado });
+      estado.perfil.bom_dia = ligado;
+    }, ligado ? 'Bom dia ligado' : 'Bom dia desligado');
+    if (!ok) el.checked = !ligado;
+  },
   'horario-aviso': async (el) => {
     const horario = Number(el.value);
     await tentar(async () => {
@@ -1210,6 +1423,8 @@ const ACOES = {
   },
   renda: () => folhaRenda(),
   metas: () => folhaMetas(),
+  recompensa: () => folhaRecompensa(),
+  'ver-bom-dia': () => verBomDia(),
   investir: () => folhaGasto(null, 'investimento'),
   'renda-padrao': () => folhaRenda({ padrao: true }),
   'novo-gasto': () => folhaGasto(),
@@ -1281,7 +1496,8 @@ async function executarInicio() {
     return;
   }
   estado.iniciado = true;
-  irPara(location.hash.slice(1) || 'tarefas');
+  irPara(location.hash.slice(1) || 'hoje');
+  verificarRecompensa();
   if (estado.usuario) renovarInscricao();
 }
 

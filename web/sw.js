@@ -1,8 +1,8 @@
 // Service worker: abre o app sem internet e mostra as notificações.
-const VERSAO = 'camarada-v9';
+const VERSAO = 'camarada-v10';
 const ARQUIVOS = [
   './', 'index.html', 'styles.css', 'app.js', 'api.js', 'config.js', 'icones.js',
-  'lib/dates.js', 'lib/tasks.js', 'lib/finance.js',
+  'lib/dates.js', 'lib/tasks.js', 'lib/finance.js', 'lib/camarada.js',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/apple-touch-icon.png',
 ];
 
