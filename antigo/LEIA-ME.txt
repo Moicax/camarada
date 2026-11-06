@@ -1,0 +1,66 @@
+CAMARADA - organizador pessoal (Pendentes, A expirar, Concluídas) e Finanças
+Criado por Moisés Dias, com Claude Code. Pasta separada do Organizador Exames: não é sincronizada.
+
+O QUE TEM AQUI
+  app\                 telas do app (o que abre no iPhone)
+  servidor\            regras do servidor (rotas.js, avisos.js, nucleo.js) e a prévia do PC (servidor.js)
+  netlify\functions\   a mesma API e a rodada de hora em hora, para rodar na nuvem (Netlify)
+  dados\               dados da prévia (itens de exemplo; senha em senha-da-previa.txt)
+  testes\              testes das regras (node --test)
+
+CONTAS (desde 04/11/2026)
+  - Cada pessoa tem a sua conta: entra com o próprio nome e senha e só vê as próprias tarefas,
+    finanças, avisos, Apple Pay e cópias. O nome não liga para acento nem maiúscula
+    ("Moisés" = "moises"; "João Silva" = joao-silva).
+  - A primeira conta cuida do app. Em Ajustes > Conta > Pessoas e convites ela vê quem tem conta,
+    manda o link de convite (só com ele dá para criar conta) e gera senha provisória para quem
+    esqueceu. Trocar o link desliga o antigo.
+  - Cada um troca a própria senha em Ajustes > Conta > Trocar senha.
+  - Os dados de antes viraram a conta "moises" (dono), com a mesma senha. Quem já estava dentro
+    continuou dentro, e o endereço do Apple Pay continuou o mesmo.
+  - Onde fica: u-<id>-dados, u-<id>-acesso, u-<id>-push, u-<id>-avisos, u-<id>-copia-<dia>,
+    u-<id>-entrada-<gasto> para cada conta; conta-<nome> diz qual id é de quem (servidor\contas.js).
+
+PRÉVIA NESTE PC
+  Abra um terminal nesta pasta e rode:   node servidor\servidor.js
+  Depois abra http://127.0.0.1:4820/ no navegador. Conta: moises (senha em dados\senha-da-previa.txt).
+  Para o celular no mesmo Wi-Fi enxergar:  $env:HOST='0.0.0.0'; node servidor\servidor.js
+
+  Recomeçar os exemplos:  node servidor\semear-previa.js --forcar   (mantém a senha)
+  Trocar a senha:         node servidor\trocar-senha.js NOME NOVA_SENHA
+
+AVISOS
+  - Só notificação no iPhone (o e-mail foi tirado em 04/11/2026). Precisa do app instalado pela
+    Tela de Início e do endereço https (só na nuvem).
+  - Roda de hora em hora, passando por todas as contas; no horário que cada pessoa escolheu em
+    Ajustes manda o que for novo, uma vez por dia.
+  - Ao sair de um aparelho, as notificações dele são desligadas (para não avisar a próxima pessoa).
+  - Tarefa com hora (opcional, ao lado da data): avisa faltando 3 h, 1 h e 10 min, uma vez cada.
+    Quem faz isso é netlify\functions\lembretes.mjs, a cada minuto (no PC, o servidor.js).
+    Se a tarefa for criada já em cima da hora, avisa uma vez com o tempo que falta de verdade.
+    Custo: a rodada de cada minuto gasta uns 20 dos 300 créditos grátis do mês; cada publicação
+    gasta 15. Se os créditos acabarem, o site pausa até o mês seguinte, sem cobrar nada.
+  - Tocar na notificação abre a tela certa: tarefas em A expirar (#expirar) ou Finanças (#financas).
+
+FINANÇAS
+  - Barra de baixo: Tarefas | Finanças. Mostra salário, gastos à vista, saldo, cartão de crédito,
+    quanto sobra, quanto dá para gastar por dia e as faturas do mês (só o crédito, por cartão).
+    Valores guardados em centavos.
+  - Gasto automático do Apple Pay: automação "Carteira" do app Atalhos chama
+    POST /api/gasto/<endereço secreto> com valor, local e cartao. O endereço fica em
+    Ajustes > Finanças > "Gastos automáticos do Apple Pay" (dá para trocar).
+  - O gasto do Atalhos é guardado sozinho (entrada-<id>) e entra nos dados na próxima vez que
+    o app sincroniza. Assim não se perde se chegar enquanto o app está gravando.
+  - Cartões de débito: em Ajustes > Finanças, ligar o cartão faz as compras dele pelo Apple Pay
+    contarem como à vista (saem do salário na hora).
+
+SEGURANÇA E CÓPIAS
+  - Senha: 1 segundo de pausa a cada erro; depois de 20 erros seguidos, espera de 15 minutos
+    (contado por conta). Convite errado também leva 1 segundo de pausa.
+  - Cópia de segurança automática: uma por dia para cada conta (u-<id>-copia-AAAA-MM-DD),
+    guardando as últimas 14. Para voltar uma cópia, peça ao Claude: o conteúdo de "dados" dela
+    volta para u-<id>-dados.
+
+SITUAÇÃO (04/11/2026)
+  No ar em https://camarada-organizador.netlify.app. Cada mudança passa pela prévia e só é
+  publicada com o OK do usuário.
