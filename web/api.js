@@ -80,7 +80,7 @@ async function criarApiSupabase() {
       if (!/Invalid login credentials/i.test(primeira.error.message) || nomeOuEmail.includes('@')) ok(primeira);
       // Primeira entrada depois da mudança: o servidor confere a senha do app antigo e a passa para cá.
       const r = await contas({ acao: 'senha-antiga', nome: nomeOuEmail, senha });
-      if (!r.ok) throw new Error('Nome ou senha incorretos.');
+      if (!r.ok) throw new Error(r.erro || 'Nome ou senha incorretos.');
       ok(await sb.auth.signInWithPassword({ email, password: senha }));
     },
     /** Cria a conta pelo link de convite e já entra. */
@@ -104,12 +104,17 @@ async function criarApiSupabase() {
     async pessoas() { return exigir(await contas({ acao: 'pessoas' })).pessoas; },
     async convite(trocar = false) { return exigir(await contas({ acao: trocar ? 'novo-convite' : 'convite' })).codigo; },
     async novaSenhaPara(userId) { return exigir(await contas({ acao: 'nova-senha', user_id: userId })).senha; },
-    async sair() {
+    /** Sair: antes, este aparelho para de receber os avisos desta conta (como no app antigo). */
+    async sair(inscricao) {
+      if (inscricao) {
+        try { await this.apagarInscricaoPush(inscricao.endpoint); } catch (e) { console.warn(e); }
+        try { await inscricao.unsubscribe(); } catch (e) { console.warn(e); }
+      }
       await sb.auth.signOut();
     },
 
     async perfil() {
-      return ok(await sb.from('perfis').select('nome, login, dono, renda_mensal, token_atalho, horario_aviso, meta_gasto, meta_investimento, recompensa_texto, recompensa_pontos, bom_dia, criado_em').single());
+      return ok(await sb.from('perfis').select('nome, login, dono, atalho_antigo, renda_mensal, token_atalho, horario_aviso, meta_gasto, meta_investimento, recompensa_texto, recompensa_pontos, bom_dia, criado_em').single());
     },
     async salvarPerfil(campos) {
       const { data: { user } } = await sb.auth.getUser();
@@ -170,7 +175,7 @@ async function criarApiSupabase() {
       return Object.fromEntries(linhas.map((r) => [r.mes, Number(r.valor)]));
     },
     async cartoes() {
-      return ok(await sb.from('cartoes').select('id, nome').order('nome')).map((c) => c.nome);
+      return ok(await sb.from('cartoes').select('id, nome, debito').order('nome'));
     },
     async salvarGasto({ id, valor, estabelecimento, cartao, forma, investimento = false, data }) {
       const campos = { valor, estabelecimento, cartao_id: await idCartao(cartao), forma, investimento, data };
@@ -222,12 +227,13 @@ async function criarApiSupabase() {
       return data?.enviados ?? 0;
     },
 
+    /** Este aparelho passa a receber os avisos da conta que está nele (mesmo que antes fosse de outra). */
     async salvarInscricaoPush(inscricao) {
       const { endpoint, keys } = inscricao.toJSON();
-      ok(await sb.from('inscricoes_push').upsert(
-        { endpoint, p256dh: keys.p256dh, auth: keys.auth },
-        { onConflict: 'endpoint' },
-      ));
+      ok(await sb.rpc('registrar_inscricao_push', { p_endpoint: endpoint, p_p256dh: keys.p256dh, p_auth: keys.auth }));
+    },
+    async apagarInscricaoPush(endpoint) {
+      ok(await sb.from('inscricoes_push').delete().eq('endpoint', endpoint));
     },
   };
 }

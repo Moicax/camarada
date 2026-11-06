@@ -131,7 +131,10 @@ export async function converter(idAntigo, dados, entradas, agora) {
       valor: (g.valor / 100).toFixed(2),
       estabelecimento: corta(g.descricao, 120) || null,
       cartao_id: nomeCartao ? cartoes.get(nomeCartao.toLowerCase()).id : null,
-      data: ISO_DIA.test(g.data ?? '') ? meioDia(g.data) : quando(g.criado_em, agora.toISOString()),
+      // Hora de verdade quando dá (o app antigo só guardava o dia): a de quando foi lançado, se foi no mesmo dia.
+      data: ISO_DIA.test(g.data ?? '')
+        ? (quando(g.criado_em, null) && diaLocal(new Date(g.criado_em), FUSO) === g.data ? g.criado_em : meioDia(g.data))
+        : quando(g.criado_em, agora.toISOString()),
       origem: g.origem === 'applepay' ? 'atalho' : 'manual',
       id_externo: `antigo:${g.id}`,
       forma: g.forma === 'avista' ? 'avista' : 'credito',
@@ -187,7 +190,8 @@ async function gravarConta(userId, idAntigo, acesso, login, c) {
       nome = coalesce(${lit(c.perfil.nome)}, nome, initcap(${lit(login.replace(/-/g, ' '))})),
       renda_mensal = ${c.perfil.renda_mensal},
       horario_aviso = ${c.perfil.horario_aviso},
-      dono = ${acesso.dono === true}
+      dono = ${acesso.dono === true},
+      atalho_antigo = ${Boolean(acesso.atalho)}
     where user_id = ${u};
     insert into public.contas_antigas (user_id, id_antigo, login, senha_hash, atalho_hash)
       values (${u}, ${lit(idAntigo)}, ${lit(login)}, ${lit(acesso.senha ?? null)}, ${lit(acesso.atalho ? resumoAtalhoAntigo(acesso.atalho) : null)})

@@ -215,7 +215,7 @@ function telaEntrada() {
   const titulos = { entrar: 'Entrar', criar: 'Criar conta', esqueci: 'Esqueci minha senha', 'nova-senha': 'Nova senha' };
   const campos = { entrar: ['nome', 'senha'], criar: ['nome', 'senha'], esqueci: [], 'nova-senha': ['senha'] }[modo];
   const campo = {
-    nome: `<div class="campo bloco"><input name="nome" autocomplete="username" autocapitalize="words" autocorrect="off" spellcheck="false" maxlength="60" placeholder="${modo === 'criar' ? 'Seu nome' : 'Nome'}" required></div>`,
+    nome: `<div class="campo bloco"><input name="nome" autocomplete="username" autocapitalize="words" autocorrect="off" spellcheck="false" maxlength="60" placeholder="${modo === 'criar' ? 'Seu nome' : 'Nome'}" value="${esc(estado.entrada.nome)}" required></div>`,
     senha: `<div class="campo bloco"><input name="senha" type="password" minlength="6" autocomplete="${modo === 'entrar' ? 'current-password' : 'new-password'}" placeholder="${modo === 'entrar' ? 'Senha' : 'Senha (mínimo 6 caracteres)'}" required></div>`,
   };
   const textoTopo = {
@@ -254,6 +254,7 @@ async function enviarEntrada(form) {
   const botao = form.querySelector('button[type=submit]');
   estado.entrada.erro = '';
   estado.entrada.ok = '';
+  if (dados.nome !== undefined) estado.entrada.nome = dados.nome; // se der erro, o nome continua escrito
   if (dados.nome !== undefined && dados.nome.trim().length < 2) {
     estado.entrada.erro = 'Escreva o seu nome.';
     return render();
@@ -287,7 +288,10 @@ async function lerConvite() {
   const m = location.hash.match(/^#convite=([0-9a-f]{36})$/);
   if (!m) return;
   history.replaceState(null, '', location.pathname);
-  if (estado.usuario) return aviso('Você já está numa conta. Para criar outra, saia primeiro.');
+  if (estado.usuario) {
+    irPara('hoje');
+    return aviso('Você já está numa conta. Para criar outra, saia primeiro.');
+  }
   let valido = false;
   try { valido = await api.conviteValido(m[1]); } catch { /* sem internet */ }
   estado.entrada = valido
@@ -810,7 +814,7 @@ function telaFinancas() {
   }
 
   const pct = r.percentual === null ? 0 : Math.min(100, r.percentual * 100);
-  const convite = ehAtual && !estado.automaticas ? `
+  const convite = ehAtual && !estado.automaticas && !estado.perfil?.atalho_antigo ? `
     <button class="convite" data-acao="automaticas">
       <span class="gasto-icone auto">${ic.raio}</span>
       <span><strong>Ative as compras automáticas</strong><span>Cada compra com Apple Pay aparece aqui sozinha. Leva 1 minuto.</span></span>
@@ -1118,6 +1122,7 @@ function folhaAutomaticas() {
   const temLink = Boolean(CONFIG.atalhoUrl);
   abrirFolha(`
     <div class="folha-topo"><span style="min-width:72px"></span><h2>Compras automáticas</h2><button data-fechar>OK</button></div>
+    ${estado.perfil.atalho_antigo ? `<div class="grupo"><div class="item" style="display:block;font-weight:500;line-height:1.45">${ic.raio} <strong>Seu atalho do app antigo continua funcionando.</strong> As compras do Apple Pay continuam chegando aqui sozinhas: não precisa fazer nada. Os passos abaixo são só para um iPhone novo.</div></div>` : ''}
     <p class="dica" style="margin:0 0 14px;text-align:left">Toda compra com Apple Pay vai aparecer em Finanças sozinha, com uma notificação dizendo quanto ainda dá para gastar hoje. Faça isto uma vez, neste iPhone:</p>
     <div class="grupo"><ol class="passos">
       <li><strong>Copie seu código pessoal</strong>
@@ -1371,12 +1376,42 @@ async function ativarNotificacoes() {
     return aviso('Notificações permitidas (o envio funciona na versão publicada).');
   }
   await tentar(async () => {
-    const reg = await navigator.serviceWorker.ready;
-    const inscricao = (await reg.pushManager.getSubscription())
-      ?? await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chaveBytes(CONFIG.vapidPublicKey) });
+    const inscricao = await inscricaoDoAparelho(true);
+    if (!inscricao) throw new Error('Não foi possível ativar agora. Feche e abra o app e tente de novo.');
     await api.salvarInscricaoPush(inscricao);
   }, 'Notificações ativadas');
   render();
+}
+
+const CHAVE_VAPID = 'camarada-vapid';
+const comLimiteDe = (ms, promessa) => Promise.race([promessa, new Promise((r) => { setTimeout(() => r(null), ms); })]);
+
+/**
+ * Inscrição de notificações deste aparelho (ou null). Uma inscrição feita com outra chave
+ * (ex.: a do app antigo, no iPhone que já tinha o Camarada instalado) não recebe mais nada:
+ * é trocada por uma nova. Com `criar`, inscreve se ainda não estiver inscrito.
+ */
+async function inscricaoDoAparelho(criar = false) {
+  if (!('serviceWorker' in navigator) || !CONFIG.vapidPublicKey) return null;
+  const reg = await comLimiteDe(5000, navigator.serviceWorker.ready);
+  if (!reg?.pushManager) return null;
+  let inscricao = await reg.pushManager.getSubscription();
+  if (inscricao) {
+    const atual = chaveBytes(CONFIG.vapidPublicKey);
+    const usada = inscricao.options?.applicationServerKey ? new Uint8Array(inscricao.options.applicationServerKey) : null;
+    let marcada = null;
+    try { marcada = localStorage.getItem(CHAVE_VAPID); } catch { /* sem armazenamento */ }
+    const outraChave = usada ? (usada.length !== atual.length || usada.some((b, i) => b !== atual[i])) : marcada !== CONFIG.vapidPublicKey;
+    if (outraChave) {
+      try { await inscricao.unsubscribe(); } catch { /* já não valia */ }
+      inscricao = null;
+    }
+  }
+  if (!inscricao && criar) {
+    inscricao = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chaveBytes(CONFIG.vapidPublicKey) });
+  }
+  if (inscricao) try { localStorage.setItem(CHAVE_VAPID, CONFIG.vapidPublicKey); } catch { /* sem armazenamento */ }
+  return inscricao;
 }
 
 /** Se a permissão já foi dada, garante que este aparelho está inscrito (a inscrição pode mudar). */
@@ -1384,10 +1419,8 @@ async function renovarInscricao() {
   if (MODO_DEMO || !CONFIG.vapidPublicKey || typeof Notification === 'undefined') return;
   if (Notification.permission !== 'granted' || !('serviceWorker' in navigator)) return;
   try {
-    const reg = await navigator.serviceWorker.ready;
-    const inscricao = (await reg.pushManager.getSubscription())
-      ?? await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chaveBytes(CONFIG.vapidPublicKey) });
-    await api.salvarInscricaoPush(inscricao);
+    const inscricao = await inscricaoDoAparelho(true);
+    if (inscricao) await api.salvarInscricaoPush(inscricao);
   } catch (e) {
     console.warn('Não foi possível renovar a inscrição de notificações', e);
   }
@@ -1532,8 +1565,11 @@ const ACOES = {
   'trocar-senha': () => folhaTrocarSenha(),
   pessoas: () => folhaPessoas(),
   sair: async () => {
-    const sim = await confirmar({ titulo: 'Sair da conta?', ok: 'Sair', perigo: true });
-    if (sim) await api.sair();
+    const sim = await confirmar({ titulo: 'Sair da conta?', texto: 'Este aparelho para de receber os avisos desta conta.', ok: 'Sair', perigo: true });
+    if (!sim) return;
+    let inscricao = null;
+    try { if (!MODO_DEMO) inscricao = await inscricaoDoAparelho(false); } catch { /* sem notificações */ }
+    await api.sair(inscricao);
   },
 };
 

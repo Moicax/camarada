@@ -161,5 +161,6 @@ Deno.serve(async (req) => {
     console.error('Compra salva, mas a meta não foi conferida', e);
   }
 
-  return resposta(200, { ok: true, forma, meta, valor: formatarReal(valor), mensagem: `${titulo} — ${mensagem}` });
+  // "sobra" é o que o Atalho do app antigo recebia de volta: quanto ainda resta no mês.
+  return resposta(200, { ok: true, forma, meta, valor: formatarReal(valor), sobra: formatarReal(resumo.resta), mensagem: `${titulo} — ${mensagem}` });
 });

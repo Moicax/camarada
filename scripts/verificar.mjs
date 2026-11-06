@@ -229,6 +229,20 @@ async function testarContas(a, b) {
     values ('${idD}', '${marca.padEnd(16, '0').slice(0, 16).replace(/[^a-f0-9]/g, 'a')}', '${loginD}', '${await hashSenha(SENHA_ANTIGA_D)}', '${resumoAtalhoAntigo(SEGREDO_ATALHO_D)}')`);
   const errada = await chamarContas({ acao: 'senha-antiga', nome: NOME_D, senha: 'senha-errada' });
   conferir('Senha antiga errada é recusada', errada.status === 401, `${errada.status}`);
+  // Como no app antigo: no 20º erro seguido, bloqueia por 15 minutos (até a senha certa).
+  await sql(`update public.contas_antigas set tentativas = 19 where user_id = '${idD}'`);
+  await chamarContas({ acao: 'senha-antiga', nome: NOME_D, senha: 'senha-errada' });
+  const bloqueada = await chamarContas({ acao: 'senha-antiga', nome: NOME_D, senha: SENHA_ANTIGA_D });
+  conferir('20 senhas antigas erradas bloqueiam por 15 minutos', bloqueada.status === 429, `${bloqueada.status}`);
+  await sql(`update public.contas_antigas set tentativas = 0, bloqueado_ate = null where user_id = '${idD}'`);
+
+  // Aparelho que troca de conta: a inscrição de notificações passa para quem entrou.
+  const endpoint = `https://example.com/push/verificacao-${marca}`;
+  const { error: eA } = await a.cliente.rpc('registrar_inscricao_push', { p_endpoint: endpoint, p_p256dh: 'x', p_auth: 'y' });
+  const { error: eB } = await b.cliente.rpc('registrar_inscricao_push', { p_endpoint: endpoint, p_p256dh: 'x', p_auth: 'y' });
+  const [dono] = await sql(`select user_id from public.inscricoes_push where endpoint = '${endpoint}'`);
+  conferir('Notificações: aparelho que troca de conta passa a avisar só a conta nova', !eA && !eB && dono?.user_id === b.id, eA?.message ?? eB?.message ?? '');
+  await sql(`delete from public.inscricoes_push where endpoint = '${endpoint}'`);
 
   const antiga = await fetch(`${SITE}/api/gasto/${SEGREDO_ATALHO_D}`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -438,6 +452,15 @@ async function testarApp() {
     await p.waitForTimeout(600);
     await foto('4-compras-automaticas');
     await p.click('#folha [data-fechar]');
+
+    // Cartão de débito pela tela (antes a lista vinha sem nome e o botão não funcionava).
+    const linhaNubank = p.locator('label.item:has-text("Nubank")');
+    await linhaNubank.waitFor({ timeout: 10000 });
+    await linhaNubank.click();
+    await p.waitForSelector('.aviso-flutuante:has-text("Nubank: compras saem do salário na hora")', { timeout: 10000 });
+    const [{ debito: nubankDebito }] = await sql(`select k.debito from public.cartoes k join public.perfis p on p.user_id = k.user_id
+      where p.login = '${nomeDeEntrada(NOME_C)}' and k.nome = 'Nubank'`);
+    conferir('App: marcar cartão de débito em Ajustes', nubankDebito === true);
 
     // Sair e entrar com o nome e a senha do app antigo (primeira entrada depois da mudança).
     await p.click('[data-acao=sair]');

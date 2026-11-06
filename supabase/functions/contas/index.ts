@@ -28,6 +28,7 @@ const resposta = (status: number, corpo: Record<string, unknown>) =>
 const erro = (status: number, mensagem: string) => resposta(status, { ok: false, erro: mensagem });
 const pausa = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const SENHA_MINIMA = 6;
+const TENTATIVAS = 20;
 
 function novoCodigo() {
   return Array.from(randomBytes(18), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -81,15 +82,26 @@ Deno.serve(async (req) => {
       const login = nomeDeEntrada(corpo.nome);
       const senha = String(corpo.senha ?? '');
       const { data: antiga } = login
-        ? await supabase.from('contas_antigas').select('user_id, senha_hash').eq('login', login).maybeSingle()
+        ? await supabase.from('contas_antigas').select('user_id, senha_hash, tentativas, bloqueado_ate').eq('login', login).maybeSingle()
         : { data: null };
+      // Como no app antigo: depois de 20 erros seguidos, espera 15 minutos.
+      if (antiga?.bloqueado_ate && new Date(antiga.bloqueado_ate) > new Date()) {
+        await pausa(1000);
+        return erro(429, 'Muitas tentativas erradas. Espere 15 minutos e tente de novo.');
+      }
       if (!antiga?.senha_hash || senha.length < SENHA_MINIMA || !(await conferirSenhaAntiga(senha, antiga.senha_hash))) {
+        if (antiga?.senha_hash) {
+          const tentativas = (antiga.tentativas ?? 0) + 1;
+          await supabase.from('contas_antigas').update(tentativas >= TENTATIVAS
+            ? { tentativas: 0, bloqueado_ate: new Date(Date.now() + 15 * 60_000).toISOString() }
+            : { tentativas }).eq('user_id', antiga.user_id);
+        }
         await pausa(1000); // como no app antigo: 1 s de pausa a cada erro
         return erro(401, 'Nome ou senha incorretos.');
       }
       const { error } = await supabase.auth.admin.updateUserById(antiga.user_id, { password: senha });
       if (error) throw error;
-      await supabase.from('contas_antigas').update({ senha_hash: null }).eq('user_id', antiga.user_id);
+      await supabase.from('contas_antigas').update({ senha_hash: null, tentativas: 0, bloqueado_ate: null }).eq('user_id', antiga.user_id);
       return resposta(200, { ok: true, email: emailDeEntrada(login) });
     }
 
