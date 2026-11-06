@@ -763,3 +763,7 @@ button.mini .legenda { color: var(--texto-3); }
 .trofeu-grande .ic { width: 34px; height: 34px; stroke-width: 1.6; }
 @keyframes pular { from { transform: scale(0.4) rotate(-12deg); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .trofeu-grande { animation: none; } }
+
+/* Logo claro: um contorno fino para não sumir no fundo claro. */
+.marca img, .conselho-avatar { box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.10), 0 10px 26px rgba(0, 0, 0, 0.10); }
+.conselho-avatar { box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12); }
