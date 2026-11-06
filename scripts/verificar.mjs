@@ -267,7 +267,7 @@ async function testarApp() {
     await p.click('#folha button[type=submit]');
     await p.waitForSelector('.gasto', { timeout: 15000 });
     conferir('App: renda e gasto lançados', true);
-    conferir('App: mostra crédito e à vista', (await p.locator('.dois').innerText()).includes('No crédito'));
+    conferir('App: mostra crédito e à vista', /no crédito/i.test(await p.locator('.dois').innerText()));
 
     // Saldo sincero: lançar, apagar, desfazer e entrada, lendo o "Resta" na tela a cada passo.
     const resta = async () => {
@@ -294,7 +294,7 @@ async function testarApp() {
     conferir('App: apagar devolve exatamente', r2 === r0, `${r1} → ${r2}`);
     conferir('App: desfazer e apagar de novo fecham a conta', r0 - r3 === 5000 && r4 === r0, `${r3}, ${r4}`);
     await p.click('[data-acao=novo-gasto]');
-    await p.click('.dois-segmentos label:has-text("Entrada")');
+    await p.click('.tres-segmentos label:has-text("Entrada")');
     await p.fill('#g-valor', '200,00');
     await p.fill('#g-onde', 'Freela');
     await p.click('#folha button[type=submit]');
