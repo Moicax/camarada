@@ -445,8 +445,13 @@ async function testarApp() {
     await p.waitForSelector('#form-entrada', { timeout: 15000 });
     await p.fill('input[name=nome]', `  ${NOME_D.toUpperCase()} `);
     await p.fill('input[name=senha]', SENHA_ANTIGA_D);
+    const errosAntes = erros.length;
     await p.click('button[type=submit]');
-    await p.waitForSelector('.camarada-cartao', { timeout: 20000 });
+    await p.waitForSelector('.barra-base, .erro', { timeout: 20000 });
+    const msgErro = await p.locator('.erro').first().textContent({ timeout: 500 }).catch(() => '');
+    if (msgErro) throw new Error(`entrada com senha antiga: ${msgErro}`);
+    // A 1ª tentativa no login novo dá 400 (a senha ainda é a do app antigo): esperado.
+    erros.splice(errosAntes, erros.length - errosAntes, ...erros.slice(errosAntes).filter((m) => !/status of 400/.test(m)));
     const [{ h: restou }] = await sql(`select count(senha_hash)::int as h from public.contas_antigas where login = '${nomeDeEntrada(NOME_D)}'`);
     conferir('App: entra com o nome e a senha do app antigo', restou === 0, `senha antiga ainda guardada: ${restou}`);
     await p.click('[data-tela=ajustes]');
