@@ -83,16 +83,39 @@ async function acharPerfil(req: Request, corpo: Record<string, unknown>) {
   return { perfil };
 }
 
+/** Como o pedido chegou (nomes e tipos dos campos, e o valor como veio), sem o código secreto. */
+function formatoDo(req: Request, corpo: Record<string, unknown>) {
+  const campos: Record<string, string> = {};
+  for (const [k, v] of Object.entries(corpo)) {
+    campos[k] = k.toLowerCase() === 'token' ? `${typeof v}(${String(v ?? '').length})` : `${typeof v}: ${JSON.stringify(v)?.slice(0, 60)}`;
+  }
+  return { tipo: req.headers.get('content-type'), legado: ROTA_ANTIGA.test(new URL(req.url).pathname), campos };
+}
+
+async function anotar(userId: string | null, status: number, motivo: string | null, formato: unknown) {
+  try {
+    await supabase.from('tentativas_atalho').insert({ user_id: userId, status, motivo, formato });
+    await supabase.from('tentativas_atalho').delete().lt('criado_em', new Date(Date.now() - 14 * 864e5).toISOString());
+  } catch (e) {
+    console.error('Não anotou a tentativa', e);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return resposta(405, { ok: false, erro: 'Use POST' });
 
   const corpo = await lerCorpo(req);
+  const formato = formatoDo(req, corpo);
   const { perfil, erro } = await acharPerfil(req, corpo);
-  if (erro) return erro;
+  if (erro) {
+    await anotar(null, erro.status, (await erro.clone().json().catch(() => ({}))).erro ?? null, formato);
+    return erro;
+  }
 
   const valorBruto = primeiro(corpo, ['valor', 'amount', 'quantia', 'total']);
   const valor = lerValor(String(valorBruto ?? ''));
   if (!Number.isFinite(valor) || valor === 0 || Math.abs(valor) > 1_000_000) {
+    await anotar(perfil!.user_id, 400, 'valor', formato);
     return resposta(400, { ok: false, erro: `Não entendi o valor do gasto: ${String(valorBruto ?? '')}` });
   }
 
@@ -122,7 +145,11 @@ Deno.serve(async (req) => {
     forma,
     origem: 'atalho',
   });
-  if (erroGasto) return resposta(500, { ok: false, erro: 'Erro ao salvar compra' });
+  if (erroGasto) {
+    await anotar(userId, 500, erroGasto.message, formato);
+    return resposta(500, { ok: false, erro: 'Erro ao salvar compra' });
+  }
+  await anotar(userId, 200, null, formato);
 
   // Resumo do mês para a notificação: "hoje ainda dá para gastar R$ X".
   const hoje = diaLocal(new Date(), FUSO);
