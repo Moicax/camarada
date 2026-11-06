@@ -652,3 +652,45 @@ button.mini .legenda { color: var(--texto-3); }
 .mini .num { text-overflow: clip; }
 .btn-pilula.so-icone { width: 36px; height: 36px; padding: 0; justify-content: center; border-radius: 50%; color: var(--laranja); }
 .btn-pilula.so-icone .ic { width: 17px; height: 17px; }
+
+/* ---------- metas do mês ---------- */
+.metas { padding: 4px 0; }
+.meta-linha { display: block; width: 100%; text-align: left; padding: 14px 16px; background: transparent; }
+.meta-linha + .meta-linha { box-shadow: inset 0 0.5px 0 var(--linha); }
+.meta-topo { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; width: 100%; text-align: left; }
+.meta-nome { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; }
+.meta-valores { font-size: 14px; color: var(--texto-3); font-weight: 500; white-space: nowrap; }
+.meta-valores strong { color: var(--texto); font-weight: 600; }
+.meta-linha .barra { display: block; margin: 10px 0 8px; height: 6px; border-radius: 3px; }
+.meta-linha .barra > span { border-radius: 3px; }
+.meta-linha.alerta .barra > span { background: var(--laranja-forte); }
+.meta-linha.passou .barra > span { background: var(--vermelho-forte); }
+.meta-linha .barra.investir > span, .meta-linha.atingida .barra > span { background: var(--verde-forte); }
+.meta-nota { font-size: 13px; color: var(--texto-3); font-weight: 500; }
+.meta-linha.alerta .meta-nota { color: var(--laranja); font-weight: 600; }
+.meta-linha.passou .meta-nota { color: var(--vermelho); font-weight: 600; }
+.meta-linha.atingida .meta-nota { color: var(--verde); font-weight: 600; }
+.meta-linha.vazia .meta-valores { color: var(--texto-2); }
+.meta-rodape { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
+.meta-rodape .btn-pilula { padding: 6px 12px; }
+.sinal-meta {
+  width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center;
+  background: var(--laranja-forte); color: #fff; font-size: 12px; font-weight: 800; line-height: 1;
+}
+.meta-linha.passou .sinal-meta { background: var(--vermelho-forte); }
+.barra-base button { position: relative; }
+.ponto-alerta {
+  position: absolute; top: 6px; left: calc(50% + 8px); width: 9px; height: 9px; border-radius: 50%;
+  background: var(--laranja-forte); box-shadow: 0 0 0 2px var(--superficie);
+}
+.ponto-alerta.passou { background: var(--vermelho-forte); }
+.gasto-icone.investe { background: color-mix(in srgb, var(--verde-forte) 14%, transparent); color: var(--verde); }
+.tres-segmentos { grid-template-columns: repeat(3, 1fr); margin: 0 0 14px; }
+.tres-segmentos label { position: relative; display: block; }
+.tres-segmentos input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.tres-segmentos span {
+  display: flex; align-items: center; justify-content: center; padding: 9px 4px; border-radius: 11px;
+  font-size: 15px; font-weight: 600; color: var(--texto-3);
+}
+.tres-segmentos input:checked + span { background: var(--superficie); color: var(--texto); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04); }
+.tres-segmentos input:focus-visible + span { outline: 2px solid var(--texto); outline-offset: 2px; }

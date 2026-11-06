@@ -128,11 +128,26 @@ async function testarServidor() {
   const { error: eGer } = await b.cliente.from('tarefas').insert({ titulo: 'x', vencimento: dia(5), gerado_de: ta?.[0]?.id });
   conferir('Outra pessoa não liga tarefa à repetição de alguém', Boolean(eGer), eGer?.message);
 
+  // Meta de gastos de R$ 20: a próxima compra passa de 80% e deve avisar.
+  await a.cliente.from('perfis').update({ meta_gasto: 20 }).eq('user_id', a.id);
+
   // Cartão marcado como débito: a compra do Atalho entra como à vista.
   const { data: cartao } = await a.cliente.from('cartoes').select('id').eq('nome', 'Cartão Teste').single();
   await a.cliente.from('cartoes').update({ debito: true }).eq('id', cartao.id);
   const debito = await registrarCompra({ token: perfil.token_atalho, valor: '5,00', estabelecimento: 'Café (débito)', cartao: 'Cartão Teste' });
   conferir('Compra com cartão de débito entra como à vista', debito.corpo?.forma === 'avista', `${debito.status} ${debito.corpo?.mensagem ?? debito.corpo?.erro ?? ''}`);
+  conferir('Meta de gastos: aviso dos 80% sai na compra', debito.corpo?.meta?.nivel === 80 && debito.corpo?.meta?.enviado === true, JSON.stringify(debito.corpo?.meta));
+  const passou = await registrarCompra({ token: perfil.token_atalho, valor: '5,00', estabelecimento: 'Mais um café', cartao: 'Cartão Teste' });
+  conferir('Meta de gastos: aviso dos 100% sai ao passar', passou.corpo?.meta?.nivel === 100 && passou.corpo?.meta?.enviado === true, JSON.stringify(passou.corpo?.meta));
+  const { data: deNovo, error: eMeta } = await a.cliente.functions.invoke('notificar', { body: { tipo: 'meta' } });
+  conferir('Meta de gastos: o mesmo aviso não se repete', !eMeta && deNovo?.nivel === 100 && deNovo?.enviado === false, eMeta?.message ?? JSON.stringify(deNovo));
+  const avisos = async () => (await sql(`select count(*)::int as n from public.avisos_meta m join auth.users u on u.id = m.user_id where u.email = '${email('a')}'`))[0].n;
+  const antes = await avisos();
+  await a.cliente.from('perfis').update({ meta_gasto: 1000 }).eq('user_id', a.id);
+  const depois = await avisos();
+  conferir('Meta de gastos: mudar a meta zera os avisos do mês', antes === 2 && depois === 0, `${antes} → ${depois}`);
+  const { error: eLer } = await a.cliente.from('avisos_meta').select('*');
+  conferir('App não lê os avisos da meta direto', Boolean(eLer), eLer?.message);
 
   // Tarefa que repete.
   const { error: eRep } = await a.cliente.from('tarefas').insert({ titulo: 'Aluguel (teste)', vencimento: dia(10), recorrencia: 'mensal', dia_original: Number(dia(10).slice(8)) });
@@ -285,6 +300,13 @@ async function testarApp() {
     await p.click('#folha button[type=submit]');
     const r5 = await resta();
     conferir('App: entrada de R$ 200 soma no saldo', r5 - r0 === 20000, `${r0} → ${r5}`);
+    await p.click('[data-acao=investir]');
+    await p.fill('#g-valor', '100,00');
+    await p.fill('#g-onde', 'Tesouro');
+    await p.click('#folha button[type=submit]');
+    const r6 = await resta();
+    conferir('App: investir R$ 100 tira R$ 100 do que dá para gastar', r5 - r6 === 10000, `${r5} → ${r6}`);
+    conferir('App: investimento aparece nas metas do mês', (await p.locator('.metas').innerText()).includes('R$ 100,00'));
 
     // Compra pelo Atalho, com o código desta conta, e o app recarrega ao voltar.
     const c = createClient(URL_SB, CONFIG.supabaseAnonKey, { auth: { persistSession: false } });

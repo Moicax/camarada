@@ -76,7 +76,7 @@ async function criarApiSupabase() {
     },
 
     async perfil() {
-      return ok(await sb.from('perfis').select('nome, renda_mensal, token_atalho, horario_aviso').single());
+      return ok(await sb.from('perfis').select('nome, renda_mensal, token_atalho, horario_aviso, meta_gasto, meta_investimento').single());
     },
     async salvarPerfil(campos) {
       const { data: { user } } = await sb.auth.getUser();
@@ -117,7 +117,7 @@ async function criarApiSupabase() {
     async gastosDoMes(mes) {
       const { inicio, fim } = intervaloDoMes(mes);
       const linhas = ok(await sb.from('gastos')
-        .select('id, valor, estabelecimento, data, origem, forma, cartoes(nome)')
+        .select('id, valor, estabelecimento, data, origem, forma, investimento, cartoes(nome)')
         .gte('data', inicio).lt('data', fim)
         .order('data', { ascending: false }));
       return linhas.map(({ cartoes, ...g }) => ({ ...g, valor: Number(g.valor), cartao: cartoes?.nome ?? null }));
@@ -125,8 +125,8 @@ async function criarApiSupabase() {
     async cartoes() {
       return ok(await sb.from('cartoes').select('id, nome').order('nome')).map((c) => c.nome);
     },
-    async salvarGasto({ id, valor, estabelecimento, cartao, forma, data }) {
-      const campos = { valor, estabelecimento, cartao_id: await idCartao(cartao), forma, data };
+    async salvarGasto({ id, valor, estabelecimento, cartao, forma, investimento = false, data }) {
+      const campos = { valor, estabelecimento, cartao_id: await idCartao(cartao), forma, investimento, data };
       if (id) ok(await sb.from('gastos').update(campos).eq('id', id));
       else ok(await sb.from('gastos').insert({ ...campos, origem: 'manual' }));
     },
@@ -137,7 +137,7 @@ async function criarApiSupabase() {
     async restaurarGasto(g) {
       ok(await sb.from('gastos').insert({
         valor: g.valor, estabelecimento: g.estabelecimento, cartao_id: await idCartao(g.cartao),
-        forma: g.forma, data: g.data, origem: g.origem || 'manual',
+        forma: g.forma, investimento: Boolean(g.investimento), data: g.data, origem: g.origem || 'manual',
       }));
     },
     async temComprasAutomaticas() {
@@ -158,6 +158,12 @@ async function criarApiSupabase() {
       ok(await sb.from('cartoes').update({ debito }).eq('id', id));
       ok(await sb.from('gastos').update({ forma: debito ? 'avista' : 'credito' }).eq('cartao_id', id).eq('origem', 'atalho'));
     },
+    /** Confere a meta de gastos no servidor (ele avisa aos 80% e aos 100%, uma vez por mês cada). */
+    async conferirMeta() {
+      const { data, error } = await sb.functions.invoke('notificar', { body: { tipo: 'meta' } });
+      if (error) throw error;
+      return data;
+    },
     async testarNotificacao() {
       const { data, error } = await sb.functions.invoke('notificar', { body: { tipo: 'teste' } });
       if (error) throw new Error('Não foi possível enviar o teste agora.');
@@ -177,7 +183,7 @@ async function criarApiSupabase() {
 // ---------------------------------------------------------------- Demonstração
 
 function criarApiDemo() {
-  const CHAVE = 'camarada-demo-v2';
+  const CHAVE = 'camarada-demo-v3';
   const novoId = () => Math.random().toString(36).slice(2, 10);
   const hoje = diaLocal();
   const quando = (dias, hora) => {
@@ -189,7 +195,7 @@ function criarApiDemo() {
     const cat = { contas: novoId(), docs: novoId(), geral: novoId() };
     return {
       usuario: null,
-      perfil: { nome: 'Você', renda_mensal: 3500, token_atalho: 'demo'.padEnd(48, '0'), horario_aviso: 9 },
+      perfil: { nome: 'Você', renda_mensal: 3500, token_atalho: 'demo'.padEnd(48, '0'), horario_aviso: 9, meta_gasto: 1000, meta_investimento: 500 },
       categorias: [
         { id: cat.contas, nome: 'Contas', aviso_dias: 5 },
         { id: cat.docs, nome: 'Documentos', aviso_dias: 15 },
@@ -212,6 +218,7 @@ function criarApiDemo() {
         { valor: 34.5, estabelecimento: 'Farmácia', cartao: 'Nubank', data: quando(-2, '17:20'), origem: 'manual' },
         { valor: 450, estabelecimento: 'Aluguel (parte)', cartao: null, data: quando(-3, '09:00'), origem: 'manual', forma: 'avista' },
         { valor: 18, estabelecimento: 'Feira (Pix)', cartao: null, data: quando(-1, '10:15'), origem: 'manual', forma: 'avista' },
+        { valor: 200, estabelecimento: 'Tesouro Selic', cartao: null, data: quando(-2, '09:30'), origem: 'manual', forma: 'avista', investimento: true },
         { valor: 89.9, estabelecimento: 'Restaurante', cartao: 'Itaú Click', data: quando(-3, '21:30'), origem: 'atalho' },
       ].map((g) => ({ id: novoId(), forma: 'credito', ...g })),
       debito: {},
@@ -298,6 +305,7 @@ function criarApiDemo() {
       db.gastos.forEach((g) => { if (g.cartao === nome && g.origem === 'atalho') g.forma = debito ? 'avista' : 'credito'; });
       salvar();
     },
+    async conferirMeta() { return null; },
     async testarNotificacao() {
       const reg = await navigator.serviceWorker?.ready;
       if (!reg || typeof Notification === 'undefined' || Notification.permission !== 'granted') return 0;

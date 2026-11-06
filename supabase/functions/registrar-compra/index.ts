@@ -9,6 +9,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { lerValor, nomeCartao, resumoMes, formatarReal } from '../_shared/finance.js';
 import { diaLocal, chaveMes } from '../_shared/dates.js';
 import { enviarPush } from '../_shared/push.ts';
+import { conferirMeta } from '../_shared/meta.ts';
 
 const FUSO = 'America/Sao_Paulo';
 
@@ -94,7 +95,7 @@ Deno.serve(async (req) => {
   const fim = new Date(Date.UTC(ano, m, 1) + 3 * 3600_000).toISOString();
 
   const [{ data: gastos }, { data: rendaMes }] = await Promise.all([
-    supabase.from('gastos').select('valor, data').eq('user_id', userId).gte('data', inicio).lt('data', fim),
+    supabase.from('gastos').select('valor, data, forma, investimento').eq('user_id', userId).gte('data', inicio).lt('data', fim),
     supabase.from('rendas_mes').select('valor').eq('user_id', userId).eq('mes', mes).maybeSingle(),
   ]);
   const renda = Number(rendaMes?.valor ?? perfil.renda_mensal ?? 0);
@@ -115,5 +116,13 @@ Deno.serve(async (req) => {
     console.error('Compra salva, mas a notificação falhou', e);
   }
 
-  return resposta(200, { ok: true, forma, mensagem: `${titulo} — ${mensagem}` });
+  // Meta de gastos: avisa aos 80% e aos 100% (uma vez por mês cada).
+  let meta = null;
+  try {
+    meta = await conferirMeta(supabase, userId);
+  } catch (e) {
+    console.error('Compra salva, mas a meta não foi conferida', e);
+  }
+
+  return resposta(200, { ok: true, forma, meta, mensagem: `${titulo} — ${mensagem}` });
 });

@@ -120,11 +120,25 @@ async function tentar(fn, msgOk) {
 
 // ---------------------------------------------------------------- carregar dados
 
+/** Nível da meta de gastos no mês atual (80, 100 ou null), para o ponto de alerta na aba. */
+function nivelDaMeta(gastos) {
+  const r = resumoMes({ renda: 0, gastos, mes: chaveMes(hoje()), hoje: hoje(), ...metasDoPerfil() });
+  return r.metaGasto?.nivel ?? null;
+}
+
+async function atualizarAlertaMeta() {
+  if (!(Number(estado.perfil?.meta_gasto) > 0)) { estado.alertaMeta = null; return; }
+  try {
+    estado.alertaMeta = nivelDaMeta(await api.gastosDoMes(chaveMes(hoje())));
+  } catch { /* sem conexão: mantém */ }
+}
+
 async function carregarTudo() {
   const [perfil, categorias, tarefas] = await Promise.all([api.perfil(), api.categorias(), api.tarefas()]);
   Object.assign(estado, { perfil, categorias, tarefas });
   if (!estado.aba) estado.aba = abasTarefas().vencendo.length ? 'vencendo' : 'pendentes';
   atualizarBadge();
+  await atualizarAlertaMeta();
 }
 
 async function recarregarTarefas() {
@@ -141,6 +155,7 @@ async function carregarFinancas() {
   ]);
   if (mes !== estado.mes) return; // trocou de mês enquanto carregava
   Object.assign(estado, { gastos, rendaMes, cartoes, automaticas, carregandoFinancas: false });
+  if (mes === chaveMes(hoje())) estado.alertaMeta = nivelDaMeta(gastos);
   render();
 }
 
@@ -513,11 +528,53 @@ function explicarLimite(r) {
   return r.gastoHoje ? `${conta}<br>Hoje você já gastou ${formatarReal(r.gastoHoje)}` : conta;
 }
 
+const metasDoPerfil = () => ({
+  metaGasto: Number(estado.perfil?.meta_gasto) || 0,
+  metaInvestimento: Number(estado.perfil?.meta_investimento) || 0,
+});
+
+/** "Metas do mês": meta de gastos (com alerta aos 80% e 100%) e meta de investimento. */
+function cartaoMetas(r) {
+  const pct = (x) => `${Math.min(100, Math.round(x * 100))}%`;
+  const mg = r.metaGasto;
+  const mi = r.metaInvestimento;
+  let gasto;
+  if (mg) {
+    const classe = mg.nivel === 100 ? 'passou' : mg.nivel === 80 ? 'alerta' : '';
+    const nota = mg.nivel === 100
+      ? (mg.falta < 0 ? `Passou ${formatarReal(-mg.falta)} da meta` : 'Você chegou ao máximo do mês')
+      : mg.nivel === 80 ? `Atenção: ${pct(mg.pct)} da meta · restam ${formatarReal(mg.falta)}`
+        : `${pct(mg.pct)} · restam ${formatarReal(mg.falta)}`;
+    gasto = `
+      <button class="meta-linha ${classe}" data-acao="metas">
+        <span class="meta-topo"><span class="meta-nome">${mg.nivel ? '<span class="sinal-meta" aria-label="Alerta">!</span>' : ''}Gastos</span>
+          <span class="meta-valores"><strong>${formatarReal(mg.usado)}</strong> de ${formatarReal(mg.meta)}</span></span>
+        <span class="barra"><span style="width:${mg.pct > 0 ? Math.max(2, Math.min(100, mg.pct * 100)) : 0}%"></span></span>
+        <span class="meta-nota">${nota}</span>
+      </button>`;
+  } else {
+    gasto = `<button class="meta-linha vazia" data-acao="metas"><span class="meta-topo"><span class="meta-nome">Gastos</span><span class="meta-valores">Definir máximo do mês ›</span></span></button>`;
+  }
+  const investido = r.investido;
+  const nota = mi
+    ? (mi.atingida ? 'Meta atingida' : `${pct(mi.pct)} · faltam ${formatarReal(mi.falta)}`)
+    : (investido ? 'Sem meta definida' : 'Defina quanto quer investir por mês');
+  const invest = `
+    <div class="meta-linha ${mi?.atingida ? 'atingida' : ''}">
+      <button class="meta-topo" data-acao="metas"><span class="meta-nome">Investimentos</span>
+        <span class="meta-valores">${mi ? `<strong>${formatarReal(investido)}</strong> de ${formatarReal(mi.meta)}` : investido ? `<strong>${formatarReal(investido)}</strong>` : 'Definir meta ›'}</span></button>
+      ${mi ? `<span class="barra investir"><span style="width:${mi.pct > 0 ? Math.max(2, Math.min(100, mi.pct * 100)) : 0}%"></span></span>` : ''}
+      <span class="meta-rodape"><span class="meta-nota">${nota}</span>
+        <button class="btn-pilula" data-acao="investir">${ic.investir}Investir</button></span>
+    </div>`;
+  return `<h3 class="grupo-titulo">Metas do mês</h3><div class="grupo metas">${gasto}${invest}</div>`;
+}
+
 function telaFinancas() {
   const h = hoje();
   const mesAtual = chaveMes(h);
   const renda = rendaAtual();
-  const r = resumoMes({ renda, gastos: estado.gastos, mes: estado.mes, hoje: h });
+  const r = resumoMes({ renda, gastos: estado.gastos, mes: estado.mes, hoje: h, ...metasDoPerfil() });
   const ehAtual = estado.mes === mesAtual;
 
   let destaque;
@@ -595,82 +652,102 @@ function telaFinancas() {
       <div class="mini"><div class="legenda">Resta no mês</div><div class="num ${r.resta < 0 ? 'ruim' : ''}">${valorMini(r.resta)}</div></div>
     </div>
     ${renda ? `<div class="barra barra-geral ${pct >= 100 ? 'ruim' : ''}" role="progressbar" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Quanto da renda já foi gasto"><span style="width:${pct}%"></span></div>` : ''}
+    ${cartaoMetas(r)}
     ${formas}
     ${convite}
     ${faturas}
     ${listaGastos}`;
 }
 
-/** Cabeçalho do dia: total gasto e, se houver, total que entrou. */
+/** Cabeçalho do dia: total gasto e, se houver, quanto entrou e quanto foi investido. */
 function totalDoDia(lista) {
   const c = (v) => Math.round(v * 100);
-  const gasto = lista.filter((g) => g.tipo !== 'entrada').reduce((t, g) => t + c(g.valor), 0) / 100;
-  const entrou = lista.filter((g) => g.tipo === 'entrada').reduce((t, g) => t - c(g.valor), 0) / 100;
-  return `${gasto ? ` · ${formatarReal(gasto)}` : ''}${entrou ? ` · entrou ${formatarReal(entrou)}` : ''}`;
+  const soma = (tipos, sinal = 1) => lista.filter((g) => tipos.includes(g.tipo)).reduce((t, g) => t + sinal * c(g.valor), 0) / 100;
+  const gasto = soma(['gasto', 'estorno']);
+  const entrou = soma(['entrada'], -1);
+  const investiu = soma(['investimento', 'resgate']);
+  return `${gasto ? ` · ${formatarReal(gasto)}` : ''}${entrou ? ` · entrou ${formatarReal(entrou)}` : ''}${investiu ? ` · investiu ${formatarReal(investiu)}` : ''}`;
 }
+
+const ROTULO_TIPO = { entrada: 'Entrada', investimento: 'Investimento', resgate: 'Resgate', estorno: 'Estorno' };
 
 function linhaGasto(g) {
   const hora = new Date(g.data).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   const auto = g.origem === 'atalho';
   const entrada = g.tipo === 'entrada';
-  const meta = entrada ? ['Entrada', hora]
+  const investe = g.tipo === 'investimento' || g.tipo === 'resgate';
+  const meta = entrada || investe ? [ROTULO_TIPO[g.tipo], hora]
     : [g.cartao, g.tipo === 'estorno' ? 'Estorno' : g.forma === 'avista' ? 'À vista' : (g.cartao ? '' : 'Crédito'), hora];
+  const icone = entrada ? ic.entrada : investe ? ic.investir : auto ? ic.raio : ic.carteira;
+  const classe = entrada ? 'entrada' : investe ? 'investe' : auto ? 'auto' : '';
+  const titulo = entrada ? 'Entrada' : investe ? 'Investimento' : auto ? 'Registrado pelo Apple Pay' : 'Lançado à mão';
   return `
     <li><button class="gasto" data-acao="editar-gasto" data-id="${g.id}">
-      <span class="gasto-icone ${auto ? 'auto' : ''} ${entrada ? 'entrada' : ''}" title="${entrada ? 'Entrada' : auto ? 'Registrado pelo Apple Pay' : 'Lançado à mão'}">${entrada ? ic.entrada : auto ? ic.raio : ic.carteira}</span>
-      <span class="gasto-texto"><strong>${esc(g.estabelecimento || (entrada ? 'Entrada' : 'Gasto'))}</strong><small>${meta.filter(Boolean).map(esc).join(' · ')}</small></span>
-      <span class="gasto-valor ${g.valor < 0 ? 'negativo' : ''}">${g.valor < 0 ? '+' : ''}${formatarReal(Math.abs(g.valor))}</span>
+      <span class="gasto-icone ${classe}" title="${titulo}">${icone}</span>
+      <span class="gasto-texto"><strong>${esc(g.estabelecimento || ROTULO_TIPO[g.tipo] || 'Gasto')}</strong><small>${meta.filter(Boolean).map(esc).join(' · ')}</small></span>
+      <span class="gasto-valor ${g.valor < 0 && !investe ? 'negativo' : ''}">${g.valor < 0 && !investe ? '+' : ''}${formatarReal(Math.abs(g.valor))}</span>
     </button></li>`;
 }
 
-/** Texto do efeito no saldo: lançar gasto tira, lançar entrada soma. */
-const efeito = (valor) => (valor >= 0 ? `${formatarReal(valor)} a menos no saldo` : `${formatarReal(-valor)} a mais no saldo`);
+/** Texto do efeito no que dá para gastar: gasto e investimento tiram, entrada soma. */
+const efeito = (valor) => (valor >= 0 ? `${formatarReal(valor)} a menos para gastar` : `${formatarReal(-valor)} a mais para gastar`);
 
-function folhaGasto(id) {
+/** Pede ao servidor para conferir a meta de gastos (ele manda o aviso dos 80%/100%). */
+function avisarMeta() {
+  if (Number(estado.perfil?.meta_gasto) > 0) api.conferirMeta().catch((e) => console.warn('Meta não conferida', e));
+}
+
+const TIPOS_LANCAMENTO = {
+  gasto: { rotulo: 'Gasto', titulo: 'gasto', onde: 'Onde', exemplo: 'Mercado, farmácia…' },
+  entrada: { rotulo: 'Entrada', titulo: 'entrada', onde: 'De onde', exemplo: 'Freela, Pix recebido…' },
+  investimento: { rotulo: 'Investir', titulo: 'investimento', onde: 'Onde', exemplo: 'Tesouro, CDB, corretora…' },
+};
+
+function folhaGasto(id, tipoPedido) {
   const g = id ? estado.gastos.find((x) => x.id === id) : null;
   const dia = g ? diaLocal(new Date(g.data)) : hoje();
-  const tipoInicial = g && tipoDe(g) === 'entrada' ? 'entrada' : 'gasto';
+  const tipoG = g ? tipoDe(g) : null;
+  const tipoInicial = g ? (tipoG === 'entrada' ? 'entrada' : g.investimento ? 'investimento' : 'gasto') : (tipoPedido || 'gasto');
   const valorInicial = g ? (tipoInicial === 'entrada' ? -g.valor : g.valor) : null;
   const valorTexto = valorInicial === null ? '' : valorInicial.toFixed(2).replace('.', ',');
   let ultimaForma = 'credito';
   try { ultimaForma = localStorage.getItem('camarada-ultima-forma') || 'credito'; } catch { /* sem armazenamento */ }
   const formaInicial = g ? (g.forma === 'avista' ? 'avista' : 'credito') : ultimaForma;
-  const nomeTipo = { gasto: 'gasto', entrada: 'entrada' };
+  const titulo = (tipo) => `${g ? 'Editar' : tipo === 'gasto' ? 'Novo' : 'Nova'} ${TIPOS_LANCAMENTO[tipo].titulo}`.replace('Nova investimento', 'Novo investimento');
   abrirFolha(`
     <form id="form-gasto">
-      <div class="folha-topo"><button type="button" data-fechar>Cancelar</button><h2 data-titulo>${g ? 'Editar' : 'Novo'} ${nomeTipo[tipoInicial]}</h2><button type="submit">Salvar</button></div>
-      <div class="segmentos dois-segmentos" role="radiogroup" aria-label="Tipo de lançamento">
-        <label><input type="radio" name="tipo" value="gasto" ${tipoInicial === 'gasto' ? 'checked' : ''}><span>Gasto</span></label>
-        <label><input type="radio" name="tipo" value="entrada" ${tipoInicial === 'entrada' ? 'checked' : ''}><span>Entrada</span></label>
+      <div class="folha-topo"><button type="button" data-fechar>Cancelar</button><h2 data-titulo>${titulo(tipoInicial)}</h2><button type="submit">Salvar</button></div>
+      <div class="segmentos tres-segmentos" role="radiogroup" aria-label="Tipo de lançamento">
+        ${Object.entries(TIPOS_LANCAMENTO).map(([t, x]) => `<label><input type="radio" name="tipo" value="${t}" ${tipoInicial === t ? 'checked' : ''}><span>${x.rotulo}</span></label>`).join('')}
       </div>
       <div class="grupo">
         <div class="campo"><label for="g-valor">Valor</label><input id="g-valor" name="valor" inputmode="decimal" placeholder="R$ 0,00" value="${esc(valorTexto)}" required ${g ? '' : 'autofocus'}></div>
-        <div class="campo"><label for="g-onde" data-rotulo-onde>${tipoInicial === 'entrada' ? 'De onde' : 'Onde'}</label><input id="g-onde" name="estabelecimento" maxlength="120" placeholder="${tipoInicial === 'entrada' ? 'Freela, Pix recebido…' : 'Mercado, farmácia…'}" value="${esc(g?.estabelecimento)}"></div>
-        <div class="campo" data-so-gasto><label for="g-cartao">Cartão</label><input id="g-cartao" name="cartao" list="lista-cartoes" maxlength="60" placeholder="Opcional" value="${esc(g?.cartao)}"></div>
+        <div class="campo"><label for="g-onde" data-rotulo-onde>${TIPOS_LANCAMENTO[tipoInicial].onde}</label><input id="g-onde" name="estabelecimento" maxlength="120" placeholder="${TIPOS_LANCAMENTO[tipoInicial].exemplo}" value="${esc(g?.estabelecimento)}"></div>
+        <div class="campo" data-so="gasto"><label for="g-cartao">Cartão</label><input id="g-cartao" name="cartao" list="lista-cartoes" maxlength="60" placeholder="Opcional" value="${esc(g?.cartao)}"></div>
         <div class="campo"><label for="g-dia">Dia</label><input id="g-dia" name="dia" type="date" max="${hoje()}" value="${dia}" required></div>
       </div>
-      <div data-so-gasto>
+      <div data-so="gasto">
         <div class="segmentos dois-segmentos" role="radiogroup" aria-label="Forma de pagamento">
           ${FORMAS.map((f) => `<label><input type="radio" name="forma" value="${f.id}" ${formaInicial === f.id ? 'checked' : ''}><span>${f.rotulo}</span></label>`).join('')}
         </div>
         <p class="dica" style="margin:-8px 4px 14px;text-align:left">Crédito vai para a fatura do cartão. À vista (débito, Pix, dinheiro) sai do salário na hora.</p>
       </div>
-      <p class="dica" data-so-entrada style="margin:0 4px 14px;text-align:left">Dinheiro que entrou além da renda do mês: soma no saldo e se espalha pelos dias que faltam.</p>
+      <p class="dica" data-so="entrada" style="margin:0 4px 14px;text-align:left">Dinheiro que entrou além da renda do mês: soma no que dá para gastar e se espalha pelos dias que faltam.</p>
+      <p class="dica" data-so="investimento" style="margin:0 4px 14px;text-align:left">Sai do que dá para gastar no mês, mas não conta como gasto. Conta para a sua meta de investimento.</p>
       <datalist id="lista-cartoes">${estado.cartoes.map((c) => `<option value="${esc(c.nome)}">`).join('')}</datalist>
       ${g?.origem === 'atalho' ? '<p class="dica" style="margin:0 0 14px">Registrado automaticamente pelo Apple Pay.</p>' : ''}
       <p class="erro" hidden></p>
-      ${g ? `<div class="grupo"><button type="button" class="item destrutivo" data-apagar>Apagar ${nomeTipo[tipoInicial]}</button></div>` : ''}
+      ${g ? `<div class="grupo"><button type="button" class="item destrutivo" data-apagar>Apagar ${TIPOS_LANCAMENTO[tipoInicial].titulo}</button></div>` : ''}
     </form>`,
   (el, fechar) => {
     el.querySelector('[data-fechar]').onclick = fechar;
     const tipoAtual = () => el.querySelector('input[name=tipo]:checked').value;
     const mostrarTipo = () => {
       const tipo = tipoAtual();
-      el.querySelectorAll('[data-so-gasto]').forEach((x) => { x.hidden = tipo !== 'gasto'; });
-      el.querySelectorAll('[data-so-entrada]').forEach((x) => { x.hidden = tipo !== 'entrada'; });
-      el.querySelector('[data-titulo]').textContent = `${g ? 'Editar' : 'Novo'} ${nomeTipo[tipo]}`.replace('Novo entrada', 'Nova entrada');
-      el.querySelector('[data-rotulo-onde]').textContent = tipo === 'entrada' ? 'De onde' : 'Onde';
-      el.querySelector('#g-onde').placeholder = tipo === 'entrada' ? 'Freela, Pix recebido…' : 'Mercado, farmácia…';
+      el.querySelectorAll('[data-so]').forEach((x) => { x.hidden = x.dataset.so !== tipo; });
+      el.querySelector('[data-titulo]').textContent = titulo(tipo);
+      el.querySelector('[data-rotulo-onde]').textContent = TIPOS_LANCAMENTO[tipo].onde;
+      el.querySelector('#g-onde').placeholder = TIPOS_LANCAMENTO[tipo].exemplo;
     };
     el.querySelectorAll('input[name=tipo]').forEach((r) => r.addEventListener('change', mostrarTipo));
     mostrarTipo();
@@ -680,27 +757,27 @@ function folhaGasto(id) {
       if (c) el.querySelector(`input[name=forma][value=${c.debito ? 'avista' : 'credito'}]`).checked = true;
     });
     el.querySelector('[data-apagar]')?.addEventListener('click', async () => {
-      const entrada = tipoInicial === 'entrada';
-      const sim = await confirmar({
-        titulo: `Apagar ${entrada ? 'entrada' : 'gasto'}?`,
-        texto: `${g.estabelecimento || (entrada ? 'Entrada' : 'Gasto')} · ${formatarReal(Math.abs(g.valor))}. ${entrada ? 'Esse valor sai do saldo.' : 'Esse valor volta para o saldo.'}`,
-        ok: 'Apagar',
-        perigo: true,
-      });
+      const nome = TIPOS_LANCAMENTO[tipoInicial].titulo;
+      const valor = formatarReal(Math.abs(g.valor));
+      const volta = tipoInicial === 'entrada' ? 'Esse valor sai do que dá para gastar.' : 'Esse valor volta para o que dá para gastar.';
+      const sim = await confirmar({ titulo: `Apagar ${nome}?`, texto: `${g.estabelecimento || ROTULO_TIPO[tipoG] || 'Gasto'} · ${valor}. ${volta}`, ok: 'Apagar', perigo: true });
       if (!sim) return;
       fechar();
       const ok = await tentar(() => api.apagarGasto(id));
       await carregarFinancas();
       if (!ok) return;
-      aviso(`${entrada ? 'Entrada apagada' : 'Gasto apagado'} · ${formatarReal(Math.abs(g.valor))} ${entrada ? 'saiu do' : 'voltou para o'} saldo`, async () => {
+      avisarMeta();
+      const apagado = `${nome[0].toUpperCase()}${nome.slice(1)} ${tipoInicial === 'gasto' ? 'apagado' : tipoInicial === 'entrada' ? 'apagada' : 'apagado'}`;
+      aviso(`${apagado} · ${valor} ${tipoInicial === 'entrada' ? 'a menos' : 'a mais'} para gastar`, async () => {
         await tentar(() => api.restaurarGasto(g), 'Lançamento restaurado');
-        carregarFinancas();
+        await carregarFinancas();
+        avisarMeta();
       });
     });
     el.querySelector('form').onsubmit = async (e) => {
       e.preventDefault();
       const d = Object.fromEntries(new FormData(e.target));
-      const tipo = d.tipo === 'entrada' ? 'entrada' : 'gasto';
+      const tipo = TIPOS_LANCAMENTO[d.tipo] ? d.tipo : 'gasto';
       const digitado = lerValor(d.valor);
       const erro = el.querySelector('.erro');
       if (!Number.isFinite(digitado) || digitado === 0) {
@@ -713,25 +790,72 @@ function folhaGasto(id) {
       if (g && d.dia === dia) data = g.data;
       else if (d.dia === hoje()) data = new Date().toISOString();
       else data = new Date(`${d.dia}T12:00:00`).toISOString();
+      const onde = d.estabelecimento.trim() || null;
       let campos;
       if (tipo === 'entrada') {
         // Entrada fica guardada com valor negativo (dinheiro que entrou), sempre à vista e sem cartão.
-        campos = { valor: -Math.abs(digitado), estabelecimento: d.estabelecimento.trim() || null, cartao: null, forma: 'avista', data };
+        campos = { valor: -Math.abs(digitado), estabelecimento: onde, cartao: null, forma: 'avista', investimento: false, data };
+      } else if (tipo === 'investimento') {
+        campos = { valor: digitado, estabelecimento: onde, cartao: null, forma: 'avista', investimento: true, data };
       } else {
         const forma = d.forma === 'avista' ? 'avista' : 'credito';
         try { localStorage.setItem('camarada-ultima-forma', forma); } catch { /* sem armazenamento */ }
-        campos = { valor: digitado, estabelecimento: d.estabelecimento.trim() || null, cartao: nomeCartao(d.cartao), forma, data };
+        campos = { valor: digitado, estabelecimento: onde, cartao: nomeCartao(d.cartao), forma, investimento: false, data };
       }
       fechar();
+      const lancado = { gasto: 'Gasto lançado', entrada: 'Entrada lançada', investimento: 'Investimento lançado' }[tipo];
       let msg;
-      if (!g) msg = `${tipo === 'entrada' ? 'Entrada lançada' : 'Gasto lançado'} · ${efeito(campos.valor)}`;
+      if (!g) msg = `${lancado} · ${efeito(campos.valor)}`;
       else if (chaveMes(d.dia) !== chaveMes(dia)) msg = `Movido para ${nomeMes(chaveMes(d.dia)).toLowerCase()}`;
       else if (campos.valor === g.valor) msg = 'Salvo';
       else msg = `Salvo · ${efeito(campos.valor - g.valor)}`;
       await tentar(() => api.salvarGasto(g ? { id, ...campos } : campos), msg);
       const mesGasto = chaveMes(d.dia);
       if (mesGasto !== estado.mes) estado.mes = mesGasto;
-      carregarFinancas();
+      await carregarFinancas();
+      avisarMeta();
+    };
+  });
+}
+
+/** Metas do mês: máximo para gastar e quanto investir (vazio = sem meta). */
+function folhaMetas() {
+  const p = estado.perfil;
+  const texto = (v) => (Number(v) > 0 ? Number(v).toFixed(2).replace('.', ',') : '');
+  abrirFolha(`
+    <form>
+      <div class="folha-topo"><button type="button" data-fechar>Cancelar</button><h2>Metas do mês</h2><button type="submit">Salvar</button></div>
+      <h3 class="grupo-titulo" style="margin-top:4px">Meta de gastos</h3>
+      <div class="grupo"><div class="campo"><label for="m-gasto">Máximo</label><input id="m-gasto" name="meta_gasto" inputmode="decimal" placeholder="Sem meta" value="${texto(p.meta_gasto)}"></div></div>
+      <p class="dica" style="margin:-10px 4px 0;text-align:left">O máximo que você quer gastar no mês. Aos 80% aparece um alerta e chega uma notificação; aos 100%, outra.</p>
+      <h3 class="grupo-titulo">Meta de investimento</h3>
+      <div class="grupo"><div class="campo"><label for="m-inv">Investir</label><input id="m-inv" name="meta_investimento" inputmode="decimal" placeholder="Sem meta" value="${texto(p.meta_investimento)}"></div></div>
+      <p class="dica" style="margin:-10px 4px 14px;text-align:left">Quanto você quer investir por mês. O que você investe sai do que dá para gastar.</p>
+      <p class="erro" hidden></p>
+    </form>`,
+  (el, fechar) => {
+    el.querySelector('[data-fechar]').onclick = fechar;
+    el.querySelector('form').onsubmit = async (e) => {
+      e.preventDefault();
+      const d = Object.fromEntries(new FormData(e.target));
+      const ler = (v) => (v.trim() ? lerValor(v) : 0);
+      const metaGasto = ler(d.meta_gasto);
+      const metaInv = ler(d.meta_investimento);
+      if (![metaGasto, metaInv].every((v) => Number.isFinite(v) && v >= 0)) {
+        const erro = el.querySelector('.erro');
+        erro.textContent = 'Digite valores como 1.500,00, ou deixe em branco para ficar sem meta.';
+        erro.hidden = false;
+        return;
+      }
+      fechar();
+      const ok = await tentar(async () => {
+        await api.salvarPerfil({ meta_gasto: metaGasto, meta_investimento: metaInv });
+        Object.assign(estado.perfil, { meta_gasto: metaGasto, meta_investimento: metaInv });
+      }, 'Metas salvas');
+      if (!ok) return;
+      if (estado.tela === 'financas') await carregarFinancas();
+      else render();
+      avisarMeta();
     };
   });
 }
@@ -847,6 +971,7 @@ function telaAjustes() {
     <h3 class="grupo-titulo">Finanças</h3>
     <div class="grupo"><ul class="lista">
       <li><button class="item" data-acao="renda-padrao"><span class="rotulo">Renda mensal</span><span class="valor-dir">${formatarReal(Number(p.renda_mensal))} ›</span></button></li>
+      <li><button class="item" data-acao="metas"><span class="rotulo">Metas do mês</span><span class="valor-dir">${Number(p.meta_gasto) > 0 || Number(p.meta_investimento) > 0 ? 'definidas' : 'nenhuma'} ›</span></button></li>
       <li><button class="item" data-acao="automaticas"><span class="gasto-icone auto" style="width:30px;height:30px">${ic.raio}</span><span class="rotulo">Compras automáticas</span><span class="valor-dir">›</span></button></li>
     </ul></div>
     ${estado.cartoes.length ? `
@@ -1003,7 +1128,7 @@ function render() {
       <main class="conteudo-tela">${tela.render()}</main>
       <nav class="barra-base" aria-label="Seções">
         ${Object.entries(TELAS).map(([id, t]) => `
-          <button data-acao="tela" data-tela="${id}" ${estado.tela === id ? 'aria-current="page"' : ''}>${t.icone}${t.titulo}</button>`).join('')}
+          <button data-acao="tela" data-tela="${id}" ${estado.tela === id ? 'aria-current="page"' : ''}>${t.icone}${t.titulo}${id === 'financas' && estado.alertaMeta ? `<span class="ponto-alerta ${estado.alertaMeta === 100 ? 'passou' : ''}" aria-label="Meta de gastos: ${estado.alertaMeta}%"></span>` : ''}</button>`).join('')}
       </nav>
     </div>`;
   window.scrollTo(0, rolagem);
@@ -1084,6 +1209,8 @@ const ACOES = {
     carregarFinancas();
   },
   renda: () => folhaRenda(),
+  metas: () => folhaMetas(),
+  investir: () => folhaGasto(null, 'investimento'),
   'renda-padrao': () => folhaRenda({ padrao: true }),
   'novo-gasto': () => folhaGasto(),
   'editar-gasto': (el) => folhaGasto(el.dataset.id),

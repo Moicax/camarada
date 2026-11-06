@@ -57,12 +57,15 @@ export const FORMAS = [
 export const formaDe = (gasto) => (gasto.forma === 'avista' ? 'avista' : 'credito');
 
 /**
- * Tipo do lançamento, pelo sinal do valor:
- *  - 'gasto'   valor positivo;
- *  - 'entrada' valor negativo à vista: dinheiro que entrou (freela, Pix recebido, reembolso);
- *  - 'estorno' valor negativo no crédito: devolução na fatura do cartão.
+ * Tipo do lançamento:
+ *  - 'investimento' dinheiro guardado/investido no mês (sai do que dá para gastar, mas não é gasto);
+ *  - 'resgate'      investimento com valor negativo: dinheiro que voltou do investimento;
+ *  - 'gasto'        valor positivo;
+ *  - 'entrada'      valor negativo à vista: dinheiro que entrou (freela, Pix recebido, reembolso);
+ *  - 'estorno'      valor negativo no crédito: devolução na fatura do cartão.
  */
 export function tipoDe(g) {
+  if (g.investimento) return Number(g.valor) >= 0 ? 'investimento' : 'resgate';
   if (Number(g.valor) >= 0) return 'gasto';
   return formaDe(g) === 'avista' ? 'entrada' : 'estorno';
 }
@@ -74,9 +77,14 @@ export function tipoDe(g) {
  * guardado que vai sendo somado e subtraído. Por isso apagar um lançamento devolve exatamente
  * o valor dele, e editar muda só a diferença.
  *
- *  - gasto:   gastos do mês menos estornos no cartão;
- *  - entradas: dinheiro que entrou além da renda;
- *  - resta:   renda + entradas − gasto.
+ *  - gasto:      gastos do mês menos estornos no cartão (investimento não é gasto);
+ *  - entradas:   dinheiro que entrou além da renda;
+ *  - investido:  aplicado no mês (menos resgates);
+ *  - disponivel: renda + entradas − investido (o que há para gastar no mês);
+ *  - resta:      disponivel − gasto.
+ *
+ * Metas (opcionais): `metaGasto` é o máximo para gastar no mês (alerta aos 80% e aos 100%);
+ * `metaInvestimento` é quanto a pessoa quer investir no mês.
  *
  * Crédito e à vista contam igual no orçamento do mês. A diferença é quando o dinheiro sai:
  * `saldo` é o que ainda está no salário agora (renda + entradas − à vista); `faturas` soma só o
@@ -86,12 +94,13 @@ export function tipoDe(g) {
  * (contando hoje). Assim, uma compra feita hoje não muda o limite de hoje: ela reduz o "resta hoje";
  * e uma entrada se espalha pelos dias que faltam. Nos meses que já passaram não há limite diário.
  */
-export function resumoMes({ renda, gastos, mes, hoje, timeZone }) {
+export function resumoMes({ renda, gastos, mes, hoje, timeZone, metaGasto = 0, metaInvestimento = 0 }) {
   const rendaC = centavos(Number(renda) || 0);
   const mesAtual = chaveMes(hoje);
   let gastoC = 0; // gastos − estornos
   let gastoHojeC = 0;
   let entradasC = 0;
+  let investidoC = 0;
   let avistaC = 0; // gastos à vista
   let creditoC = 0; // gastos no crédito − estornos
   const cartoes = new Map();
@@ -106,6 +115,8 @@ export function resumoMes({ renda, gastos, mes, hoje, timeZone }) {
     const nome = g.cartao || 'Sem cartão';
     if (tipo === 'entrada') {
       entradasC += -v;
+    } else if (tipo === 'investimento' || tipo === 'resgate') {
+      investidoC += v;
     } else {
       gastoC += v;
       if (dia === hoje) gastoHojeC += v;
@@ -130,7 +141,7 @@ export function resumoMes({ renda, gastos, mes, hoje, timeZone }) {
   else if (mes > mesAtual) diasRestantes = diasNoMes(mes);
   else diasRestantes = diasNoMes(mes) - Number(hoje.slice(8, 10)) + 1;
 
-  const disponivelC = rendaC + entradasC;
+  const disponivelC = rendaC + entradasC - investidoC;
   const restaC = disponivelC - gastoC;
   let porDia = null;
   let restaHoje = null;
@@ -146,25 +157,52 @@ export function resumoMes({ renda, gastos, mes, hoje, timeZone }) {
     .sort((a, b) => b.totalC - a.totalC)
     .map(({ cartao, totalC, quantidade }) => ({ cartao, total: reais(totalC), quantidade }));
 
+  const metaGastoC = centavos(Number(metaGasto) || 0);
+  const metaInvC = centavos(Number(metaInvestimento) || 0);
+  const pctGasto = metaGastoC > 0 ? gastoC / metaGastoC : null;
+
   return {
     mes,
     renda: reais(rendaC),
     entradas: reais(entradasC),
+    investido: reais(investidoC),
     disponivel: reais(disponivelC),
     gasto: reais(gastoC),
     resta: reais(restaC),
     gastoHoje: reais(gastoHojeC),
     credito: reais(creditoC),
     avista: reais(avistaC),
-    saldo: reais(disponivelC - avistaC),
+    saldo: reais(disponivelC - avistaC), // no salário agora: o investido já saiu
     diasRestantes,
     porDia,
     restaHoje,
     percentual: disponivelC > 0 ? gastoC / disponivelC : null,
     porCartao: listar(cartoes),
     faturas: listar(faturas),
+    metaGasto: metaGastoC > 0 ? {
+      meta: reais(metaGastoC),
+      usado: reais(gastoC),
+      falta: reais(metaGastoC - gastoC),
+      pct: pctGasto,
+      nivel: nivelMeta(pctGasto),
+    } : null,
+    metaInvestimento: metaInvC > 0 ? {
+      meta: reais(metaInvC),
+      investido: reais(investidoC),
+      falta: reais(Math.max(0, metaInvC - investidoC)),
+      pct: investidoC / metaInvC,
+      atingida: investidoC >= metaInvC,
+    } : null,
     gastos: doMes.sort((a, b) => String(b.data).localeCompare(String(a.data))),
   };
+}
+
+/** Nível de alerta da meta de gastos: 100 (passou ou chegou), 80 (quase lá) ou null. */
+export function nivelMeta(pct) {
+  if (pct === null || pct === undefined) return null;
+  if (pct >= 1) return 100;
+  if (pct >= 0.8) return 80;
+  return null;
 }
 
 /** Normaliza o nome do cartão vindo da Carteira ('  Nubank   Ultravioleta ' → 'Nubank Ultravioleta'). */

@@ -5,16 +5,19 @@
 //  - "lembretes" (agendado de minuto em minuto, só quando há tarefa com horário chegando):
 //                avisa 3 horas, 1 hora e 10 minutos antes do horário da tarefa.
 //  - "teste"     (botão "Testar notificação" no app): manda um aviso de teste para a própria pessoa.
+//  - "meta"      (o app chama depois de lançar algo): confere a meta de gastos da própria pessoa e
+//                avisa aos 80% e aos 100%. O "diario" também confere a meta de todos, como garantia.
 //
 // Publicar com: supabase functions deploy notificar --no-verify-jwt
 // "diario" e "lembretes" exigem o cabeçalho x-cron-secret (variável CRON_SECRET);
-// "teste" exige o login da pessoa (Authorization: Bearer <token do app>).
+// "teste" e "meta" exigem o login da pessoa (Authorization: Bearer <token do app>).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { somarDias } from '../_shared/dates.js';
 import {
   classificar, etapaAviso, textoAviso, etapaLembrete, textoLembrete, AVISO_PADRAO,
 } from '../_shared/tasks.js';
 import { enviarPush } from '../_shared/push.ts';
+import { conferirMeta } from '../_shared/meta.ts';
 
 const FUSO = 'America/Sao_Paulo';
 const SEGREDO = Deno.env.get('CRON_SECRET');
@@ -122,11 +125,30 @@ async function lembretes() {
   return { hoje, tarefas: tarefas.length, enviados };
 }
 
-async function teste(req: Request) {
+async function usuarioDoPedido(req: Request) {
   const token = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '');
   const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data.user) return resposta(401, { ok: false, erro: 'Entre na sua conta de novo.' });
-  const enviados = await enviarPush(supabase, data.user.id, {
+  return error ? null : data.user;
+}
+
+async function metasDeTodos() {
+  const { data, error } = await supabase.from('perfis').select('user_id').gt('meta_gasto', 0);
+  if (error) throw error;
+  let avisados = 0;
+  for (const p of data ?? []) {
+    try {
+      if ((await conferirMeta(supabase, p.user_id)).enviado) avisados++;
+    } catch (e) {
+      console.error('Falha ao conferir meta', p.user_id, e);
+    }
+  }
+  return avisados;
+}
+
+async function teste(req: Request) {
+  const user = await usuarioDoPedido(req);
+  if (!user) return resposta(401, { ok: false, erro: 'Entre na sua conta de novo.' });
+  const enviados = await enviarPush(supabase, user.id, {
     titulo: 'Notificações funcionando',
     corpo: 'É assim que os avisos do Camarada vão chegar.',
     url: '/#ajustes',
@@ -143,9 +165,17 @@ Deno.serve(async (req) => {
 
   try {
     if (tipo === 'teste') return await teste(req);
+    if (tipo === 'meta') {
+      const user = await usuarioDoPedido(req);
+      if (!user) return resposta(401, { ok: false, erro: 'Entre na sua conta de novo.' });
+      return resposta(200, { ok: true, tipo, ...(await conferirMeta(supabase, user.id)) });
+    }
     if (!SEGREDO || req.headers.get('x-cron-secret') !== SEGREDO) return resposta(401, { ok: false, erro: 'Não autorizado' });
     if (tipo === 'lembretes') return resposta(200, { ok: true, tipo, ...(await lembretes()) });
-    if (tipo === 'diario') return resposta(200, { ok: true, tipo, ...(await diario()) });
+    if (tipo === 'diario') {
+      const resultado = await diario();
+      return resposta(200, { ok: true, tipo, ...resultado, metasAvisadas: await metasDeTodos() });
+    }
     return resposta(400, { ok: false, erro: `Tipo desconhecido: ${tipo}` });
   } catch (e) {
     console.error(e);

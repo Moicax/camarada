@@ -23,6 +23,8 @@ Cada pessoa cria a própria conta e só enxerga os próprios dados.
 - Renda do mês → quanto já gastou → quanto resta → **quanto dá para gastar hoje**.
 - **Crédito × à vista**: crédito vai para a fatura do cartão; à vista (débito, Pix, dinheiro) sai do salário na hora. Cartões de débito são marcados em Ajustes.
 - Faturas do mês por cartão e gastos por dia.
+- **Investimentos**: meta de quanto investir por mês; cada investimento sai do que dá para gastar, mas não conta como gasto.
+- **Meta de gastos**: máximo para gastar no mês, com alerta (e notificação) aos 80% e aos 100%, uma vez por mês cada.
 - **Compras automáticas**: cada compra com Apple Pay entra sozinha, com uma notificação ("R$ 23,90 · Padaria — hoje ainda dá para gastar R$ 79,61"). Funciona com um atalho do iPhone configurado uma vez ([docs/ATALHO.md](docs/ATALHO.md)).
 - Lançamento manual para compras sem Apple Pay.
 
