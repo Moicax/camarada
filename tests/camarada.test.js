@@ -106,3 +106,13 @@ test('cumprimento e contagem de hoje', () => {
     { vencimento: '2026-11-05' }, { vencimento: '2026-11-06' }, { vencimento: '2026-11-06', concluida_em: 'x' }, { vencimento: null },
   ], hoje), { atrasadas: 1, vencemHoje: 1 });
 });
+
+test('conta nova não ganha dias antes de começar a usar o app', () => {
+  const rendaDe = () => 3000;
+  const nova = resumoCamarada({ tarefas: [], gastos: [], rendaDe, hoje, timeZone: fuso, desde: hoje });
+  assert.equal(nova.pontos, 0);
+  assert.equal(nova.sequencia, 0);
+  const tresDias = resumoCamarada({ tarefas: [], gastos: [], rendaDe, hoje, timeZone: fuso, desde: '2026-11-03' });
+  assert.equal(tresDias.pontos, 15, 'terça, quarta e quinta');
+  assert.equal(tresDias.sequencia, 3);
+});

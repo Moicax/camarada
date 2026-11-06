@@ -151,6 +151,7 @@ function camaradaAgora() {
     hoje: hoje(),
     metaPontos: estado.perfil?.recompensa_pontos,
     recompensa: estado.perfil?.recompensa_texto,
+    desde: estado.perfil?.criado_em ? diaLocal(new Date(estado.perfil.criado_em)) : undefined,
   });
 }
 

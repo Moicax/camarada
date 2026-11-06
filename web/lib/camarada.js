@@ -27,9 +27,10 @@ export function inicioDaSemana(dia) {
  *  - dia dentro do limite: +5 para cada dia já encerrado em que o gasto ficou dentro do limite
  *    daquele dia (só quando há renda informada);
  *  - investimento: +15 por dia em que houve investimento.
- * `rendaDe(mes)` devolve a renda do mês ('AAAA-MM').
+ * `rendaDe(mes)` devolve a renda do mês ('AAAA-MM'). `desde` é o dia em que a pessoa começou a usar
+ * o app: dias antes disso não contam (senão uma conta nova já nasceria com dias "dentro do limite").
  */
-export function eventos({ tarefas = [], gastos = [], rendaDe = () => 0, de, ate, hoje, timeZone }) {
+export function eventos({ tarefas = [], gastos = [], rendaDe = () => 0, de, ate, hoje, timeZone, desde }) {
   const lista = [];
   for (const t of tarefas) {
     if (!t.concluida_em) continue;
@@ -49,6 +50,7 @@ export function eventos({ tarefas = [], gastos = [], rendaDe = () => 0, de, ate,
   for (let d = de; d <= ate; d = somarDias(d, 1)) {
     if (investiu.has(d)) lista.push({ dia: d, tipo: 'investimento', pontos: PONTOS.investimento, texto: 'Investiu' });
     if (d >= hoje) continue; // o dia só fecha quando acaba
+    if (desde && d < desde) continue; // antes de começar a usar o app
     const mes = chaveMes(d);
     const renda = Number(rendaDe(mes)) || 0;
     if (renda <= 0) continue;
@@ -78,13 +80,13 @@ export function sequencia({ eventos: lista, hoje }) {
 }
 
 /** Resumo do camarada: pontos da semana, recompensa e sequência. */
-export function resumoCamarada({ tarefas, gastos, rendaDe, hoje, timeZone, metaPontos, recompensa }) {
+export function resumoCamarada({ tarefas, gastos, rendaDe, hoje, timeZone, metaPontos, recompensa, desde }) {
   const de = inicioDaSemana(hoje);
   const ate = somarDias(de, 6);
-  const daSemana = eventos({ tarefas, gastos, rendaDe, de, ate, hoje, timeZone });
+  const daSemana = eventos({ tarefas, gastos, rendaDe, de, ate, hoje, timeZone, desde });
   const pontos = daSemana.reduce((t, e) => t + e.pontos, 0);
   const meta = Number(metaPontos) > 0 ? Number(metaPontos) : RECOMPENSA_PADRAO;
-  const historico = eventos({ tarefas, gastos, rendaDe, de: somarDias(hoje, -60), ate: hoje, hoje, timeZone });
+  const historico = eventos({ tarefas, gastos, rendaDe, de: somarDias(hoje, -60), ate: hoje, hoje, timeZone, desde });
   return {
     semana: { de, ate },
     pontos,

@@ -158,6 +158,7 @@ async function testarServidor() {
   conferir('Testar notificação responde', !etn && tn?.ok === true, etn?.message ?? JSON.stringify(tn));
   const { data: bd, error: ebd } = await a.cliente.functions.invoke('notificar', { body: { tipo: 'bomdia' } });
   conferir('Ver o bom dia: monta a mensagem', !ebd && /^(Bom dia|Boa tarde|Boa noite)/.test(bd?.titulo ?? '') && /pontos/.test(bd?.corpo ?? ''), ebd?.message ?? `${bd?.titulo} ${bd?.corpo}`);
+  conferir('Conta nova começa do zero (sem sequência inventada)', /0\/100 pontos/.test(bd?.corpo ?? '') && !/dias seguidos/.test(bd?.corpo ?? ''), bd?.corpo);
   const semLogin = await fetch(`${URL_SB}/functions/v1/notificar`, { method: 'POST', body: JSON.stringify({ tipo: 'teste' }) });
   conferir('Testar notificação exige login', semLogin.status === 401, String(semLogin.status));
 }

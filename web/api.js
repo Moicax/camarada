@@ -76,7 +76,7 @@ async function criarApiSupabase() {
     },
 
     async perfil() {
-      return ok(await sb.from('perfis').select('nome, renda_mensal, token_atalho, horario_aviso, meta_gasto, meta_investimento, recompensa_texto, recompensa_pontos, bom_dia').single());
+      return ok(await sb.from('perfis').select('nome, renda_mensal, token_atalho, horario_aviso, meta_gasto, meta_investimento, recompensa_texto, recompensa_pontos, bom_dia, criado_em').single());
     },
     async salvarPerfil(campos) {
       const { data: { user } } = await sb.auth.getUser();
@@ -214,7 +214,7 @@ function criarApiDemo() {
     const cat = { contas: novoId(), docs: novoId(), geral: novoId() };
     return {
       usuario: null,
-      perfil: { nome: 'Você', renda_mensal: 3500, token_atalho: 'demo'.padEnd(48, '0'), horario_aviso: 9, meta_gasto: 1000, meta_investimento: 500, recompensa_texto: 'Pizza no sábado', recompensa_pontos: 100, bom_dia: true },
+      perfil: { nome: 'Você', renda_mensal: 3500, token_atalho: 'demo'.padEnd(48, '0'), horario_aviso: 9, meta_gasto: 1000, meta_investimento: 500, recompensa_texto: 'Pizza no sábado', recompensa_pontos: 100, bom_dia: true, criado_em: quando(-20, '09:00') },
       categorias: [
         { id: cat.contas, nome: 'Contas', aviso_dias: 5 },
         { id: cat.docs, nome: 'Documentos', aviso_dias: 15 },
