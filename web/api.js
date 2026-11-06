@@ -3,6 +3,7 @@
 //  - Demonstração (dados de exemplo no navegador, para testar sem servidor)
 import { CONFIG } from './config.js';
 import { diaLocal, somarDias } from './lib/dates.js';
+import { emailDeEntrada, nomeDeEntrada } from './lib/contas.js';
 
 export const MODO_DEMO = !CONFIG.supabaseUrl;
 
@@ -13,7 +14,7 @@ function intervaloDoMes(mes) {
 
 const erroAmigavel = (e) => {
   const msg = e?.message || String(e);
-  if (/Invalid login credentials/i.test(msg)) return 'E-mail ou senha incorretos.';
+  if (/Invalid login credentials/i.test(msg)) return 'Nome ou senha incorretos.';
   if (/Email not confirmed/i.test(msg)) return 'Confirme seu e-mail pelo link que enviamos.';
   if (/already registered/i.test(msg)) return 'Já existe uma conta com este e-mail.';
   if (/Password should be at least/i.test(msg)) return 'A senha precisa ter pelo menos 6 caracteres.';
@@ -31,6 +32,22 @@ async function criarApiSupabase() {
     if (error) throw new Error(erroAmigavel(error));
     return data;
   };
+
+  // Função "contas" do servidor. Devolve { ok, erro? } mesmo quando a resposta é um erro (4xx).
+  async function contas(corpo) {
+    const { data: { session } } = await sb.auth.getSession();
+    const r = await fetch(`${CONFIG.supabaseUrl}/functions/v1/contas`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        apikey: CONFIG.supabaseAnonKey,
+        authorization: `Bearer ${session?.access_token ?? CONFIG.supabaseAnonKey}`,
+      },
+      body: JSON.stringify(corpo),
+    });
+    try { return await r.json(); } catch { return { ok: false, erro: 'O servidor não respondeu. Tente de novo.' }; }
+  }
+  const exigir = (r) => { if (!r.ok) throw new Error(r.erro || 'Algo deu errado.'); return r; };
 
   async function idCartao(nome) {
     if (!nome) return null;
@@ -55,28 +72,44 @@ async function criarApiSupabase() {
         setTimeout(() => cb(evento, sessao?.user ?? null), 0);
       });
     },
-    async entrar(email, senha) {
+    /** Entra com o nome (ou e-mail) e a senha. Quem veio do app antigo entra com a senha de antes. */
+    async entrar(nomeOuEmail, senha) {
+      const email = emailDeEntrada(nomeOuEmail);
+      const primeira = await sb.auth.signInWithPassword({ email, password: senha });
+      if (!primeira.error) return;
+      if (!/Invalid login credentials/i.test(primeira.error.message) || nomeOuEmail.includes('@')) ok(primeira);
+      // Primeira entrada depois da mudança: o servidor confere a senha do app antigo e a passa para cá.
+      const r = await contas({ acao: 'senha-antiga', nome: nomeOuEmail, senha });
+      if (!r.ok) throw new Error('Nome ou senha incorretos.');
       ok(await sb.auth.signInWithPassword({ email, password: senha }));
     },
-    async cadastrar(nome, email, senha) {
-      const data = ok(await sb.auth.signUp({
-        email, password: senha,
-        options: { data: { nome }, emailRedirectTo: location.origin },
-      }));
-      return { precisaConfirmar: !data.session };
+    /** Cria a conta pelo link de convite e já entra. */
+    async criarConta(convite, nome, senha) {
+      const r = await contas({ acao: 'criar', convite, nome, senha });
+      if (!r.ok) throw new Error(r.erro);
+      ok(await sb.auth.signInWithPassword({ email: r.email, password: senha }));
     },
-    async recuperarSenha(email) {
-      ok(await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin }));
+    async conviteValido(convite) {
+      return (await contas({ acao: 'convite-ok', convite })).ok;
     },
-    async trocarSenha(senha) {
+    async trocarSenha(senha, atual) {
+      if (atual !== undefined) {
+        const { data: { user } } = await sb.auth.getUser();
+        const conferida = await sb.auth.signInWithPassword({ email: user.email, password: atual });
+        if (conferida.error) throw new Error('A senha atual não confere.');
+      }
       ok(await sb.auth.updateUser({ password: senha }));
     },
+    /** Só a conta dono: pessoas, link de convite e senha provisória. */
+    async pessoas() { return exigir(await contas({ acao: 'pessoas' })).pessoas; },
+    async convite(trocar = false) { return exigir(await contas({ acao: trocar ? 'novo-convite' : 'convite' })).codigo; },
+    async novaSenhaPara(userId) { return exigir(await contas({ acao: 'nova-senha', user_id: userId })).senha; },
     async sair() {
       await sb.auth.signOut();
     },
 
     async perfil() {
-      return ok(await sb.from('perfis').select('nome, renda_mensal, token_atalho, horario_aviso, meta_gasto, meta_investimento, recompensa_texto, recompensa_pontos, bom_dia, criado_em').single());
+      return ok(await sb.from('perfis').select('nome, login, dono, renda_mensal, token_atalho, horario_aviso, meta_gasto, meta_investimento, recompensa_texto, recompensa_pontos, bom_dia, criado_em').single());
     },
     async salvarPerfil(campos) {
       const { data: { user } } = await sb.auth.getUser();
@@ -214,7 +247,7 @@ function criarApiDemo() {
     const cat = { contas: novoId(), docs: novoId(), geral: novoId() };
     return {
       usuario: null,
-      perfil: { nome: 'Você', renda_mensal: 3500, token_atalho: 'demo'.padEnd(48, '0'), horario_aviso: 9, meta_gasto: 1000, meta_investimento: 500, recompensa_texto: 'Pizza no sábado', recompensa_pontos: 100, bom_dia: true, criado_em: quando(-20, '09:00') },
+      perfil: { nome: 'Você', login: 'voce', dono: true, renda_mensal: 3500, token_atalho: 'demo'.padEnd(48, '0'), horario_aviso: 9, meta_gasto: 1000, meta_investimento: 500, recompensa_texto: 'Pizza no sábado', recompensa_pontos: 100, bom_dia: true, criado_em: quando(-20, '09:00') },
       categorias: [
         { id: cat.contas, nome: 'Contas', aviso_dias: 5 },
         { id: cat.docs, nome: 'Documentos', aviso_dias: 15 },
@@ -262,22 +295,26 @@ function criarApiDemo() {
 
     async usuario() { return db.usuario; },
     aoMudarSessao(cb) { ouvinte = cb; },
-    async entrar(email) {
+    async entrar(nome) {
       await espera();
-      db.usuario = { id: 'demo', email };
+      db.usuario = { id: 'demo', email: emailDeEntrada(nome) };
+      db.perfil.login = nomeDeEntrada(nome);
       salvar();
       ouvinte('SIGNED_IN', db.usuario);
     },
-    async cadastrar(nome, email) {
+    async criarConta(_convite, nome) {
       await espera();
-      db.perfil.nome = nome || 'Você';
-      db.usuario = { id: 'demo', email };
+      db.perfil.nome = nome.split(' ')[0] || 'Você';
+      db.perfil.login = nomeDeEntrada(nome);
+      db.usuario = { id: 'demo', email: emailDeEntrada(nome) };
       salvar();
       ouvinte('SIGNED_IN', db.usuario);
-      return { precisaConfirmar: false };
     },
-    async recuperarSenha() { await espera(); },
+    async conviteValido() { return true; },
     async trocarSenha() { await espera(); },
+    async pessoas() { return [{ user_id: 'demo', nome: db.perfil.nome, login: db.perfil.login || 'voce', dono: true, criado_em: db.perfil.criado_em }]; },
+    async convite() { return 'd'.repeat(36); },
+    async novaSenhaPara() { return 'abcd-2345'; },
     async sair() {
       db = exemplo();
       salvar();

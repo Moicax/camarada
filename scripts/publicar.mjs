@@ -127,8 +127,10 @@ async function configurarLogin(ref, urlSite) {
     uri_allow_list: `${urlSite}/**`,
     // O e-mail gratuito do Supabase só envia para membros da equipe; sem isso ninguém conseguiria entrar.
     mailer_autoconfirm: true,
+    // Como no app antigo: conta nova só pelo link de convite (a função "contas" cria a conta).
+    disable_signup: true,
   });
-  console.log(`  endereço do site: ${urlSite}; contas novas entram sem confirmar e-mail`);
+  console.log(`  endereço do site: ${urlSite}; conta nova só pelo link de convite`);
 }
 
 // ---------------------------------------------------------------- 4. segredos
@@ -169,7 +171,7 @@ async function garantirSegredos(ref, configAtual, urlSite) {
 
 function publicarFuncoes(ref) {
   passo('Funções do servidor');
-  for (const f of ['registrar-compra', 'notificar']) {
+  for (const f of ['registrar-compra', 'notificar', 'contas']) {
     execFileSync('supabase', ['functions', 'deploy', f, `--remote=${ref}`, '--no-verify-jwt', '--use-api', '--yes'], { stdio: 'inherit' });
     console.log(`  ✓ ${f}`);
   }
@@ -222,6 +224,8 @@ async function agendarAvisos(ref, segredoCron) {
               else 'h3'
             end]))
     $cron$);`);
+  // Cópia de segurança de cada conta, todo dia às 3h15 de Brasília (guarda as últimas 14).
+  await sql(ref, `select cron.schedule('camarada-copias', '15 6 * * *', 'select public.fazer_copias()');`);
   console.log('  ✓ agendado');
 }
 

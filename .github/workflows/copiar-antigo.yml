@@ -1,0 +1,26 @@
+# Copia as contas do app antigo (Netlify Blobs) para o app novo (Supabase).
+# No app antigo é só leitura. Rodar de novo atualiza a cópia. O log mostra só contagens.
+name: Copiar app antigo
+on:
+  push:
+    branches: [copiar-antigo]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: copiar-antigo
+  cancel-in-progress: false
+jobs:
+  copiar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm i --no-save @netlify/blobs@8.1.0
+      - run: node scripts/copiar-antigo.mjs

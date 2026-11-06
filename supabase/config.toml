@@ -6,3 +6,6 @@ verify_jwt = false
 
 [functions.notificar]
 verify_jwt = false
+
+[functions.contas]
+verify_jwt = false

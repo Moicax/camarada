@@ -7,6 +7,9 @@
 import { mkdir, appendFile } from 'node:fs/promises';
 import { createClient } from '@supabase/supabase-js';
 import { CONFIG } from '../web/config.js';
+import { emailDeEntrada, nomeDeEntrada } from '../web/lib/contas.js';
+import { hashSenha } from '../antigo/servidor/nucleo.js';
+import { resumoAtalhoAntigo } from '../supabase/functions/_shared/senha-antiga.js';
 
 // Testa o endereço de teste (o principal fica com a versão antiga e não é tocado).
 const SITE = 'https://teste--camarada-organizador.netlify.app';
@@ -18,6 +21,11 @@ const DOMINIO = '@example.com';
 const marca = Date.now().toString(36);
 const email = (quem) => `${PREFIXO}${quem}-${marca}${DOMINIO}`;
 const SENHA = `Teste-${marca}-${Math.random().toString(36).slice(2)}`;
+// Contas que entram pelo nome (como no app antigo).
+const NOME_C = `Verificacao C ${marca}`;
+const NOME_D = `Verificacao D ${marca}`;
+const SENHA_ANTIGA_D = `Antiga-${marca}`;
+const SEGREDO_ATALHO_D = `seg-${marca}-${Math.random().toString(36).slice(2)}-xyzxyz`;
 
 const resultados = [];
 function conferir(nome, ok, detalhe = '') {
@@ -46,12 +54,40 @@ async function sql(query) {
 const dia = (deslocamento = 0) =>
   new Intl.DateTimeFormat('en-CA', { timeZone: FUSO }).format(new Date(Date.now() + deslocamento * 86400000));
 
+let chaveServico = null;
+async function criarUsuario(emailNovo, senha, nome) {
+  if (!chaveServico) {
+    const r = await fetch(`https://api.supabase.com/v1/projects/${REF}/api-keys?reveal=true`, {
+      headers: { authorization: `Bearer ${process.env.SUPABASE_ACCESS_TOKEN}` },
+    });
+    const chaves = await r.json();
+    chaveServico = (chaves.find((k) => k.name === 'service_role' && k.api_key) ?? chaves.find((k) => k.type === 'secret' && k.api_key)).api_key;
+  }
+  const r = await fetch(`${URL_SB}/auth/v1/admin/users`, {
+    method: 'POST',
+    headers: { apikey: chaveServico, authorization: `Bearer ${chaveServico}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ email: emailNovo, password: senha, email_confirm: true, user_metadata: { nome } }),
+  });
+  const corpo = await r.json();
+  if (!r.ok) throw new Error(`criar ${emailNovo}: ${JSON.stringify(corpo)}`);
+  return corpo.id;
+}
+
 async function novaConta(quem) {
+  const id = await criarUsuario(email(quem), SENHA, `Teste ${quem}`);
   const c = createClient(URL_SB, CONFIG.supabaseAnonKey, { auth: { persistSession: false } });
-  const { data, error } = await c.auth.signUp({ email: email(quem), password: SENHA, options: { data: { nome: `Teste ${quem}` } } });
-  if (error) throw new Error(`cadastro ${quem}: ${error.message}`);
-  if (!data.session) throw new Error(`cadastro ${quem}: conta criada sem sessão (confirmação por e-mail ainda ligada)`);
-  return { cliente: c, id: data.user.id };
+  const { error } = await c.auth.signInWithPassword({ email: email(quem), password: SENHA });
+  if (error) throw new Error(`entrar ${quem}: ${error.message}`);
+  return { cliente: c, id };
+}
+
+async function chamarContas(corpo, jwt) {
+  const r = await fetch(`${URL_SB}/functions/v1/contas`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', apikey: CONFIG.supabaseAnonKey, authorization: `Bearer ${jwt ?? CONFIG.supabaseAnonKey}` },
+    body: JSON.stringify(corpo),
+  });
+  return { status: r.status, corpo: await r.json().catch(() => null) };
 }
 
 let contaA = null;
@@ -90,9 +126,13 @@ async function testarServidor() {
   const semSegredo = await fetch(`${URL_SB}/functions/v1/notificar`, { method: 'POST' });
   conferir('Avisos não rodam sem o segredo', semSegredo.status === 401, String(semSegredo.status));
 
+  const anonimo = createClient(URL_SB, CONFIG.supabaseAnonKey, { auth: { persistSession: false } });
+  const { data: livre } = await anonimo.auth.signUp({ email: email('intruso'), password: SENHA });
+  conferir('Cadastro sem convite é recusado', !livre?.user, livre?.user ? 'criou conta sem convite' : '');
+
   const a = await novaConta('a');
   contaA = a;
-  conferir('Cadastro entra direto (sem confirmar e-mail)', true);
+  conferir('Conta criada pelo servidor entra direto', true);
 
   const { data: perfil, error: ep } = await a.cliente.from('perfis').select('nome, renda_mensal, token_atalho').single();
   conferir('Perfil criado no cadastro', !ep && /^[0-9a-f]{48}$/.test(perfil?.token_atalho ?? ''), ep?.message ?? perfil?.nome);
@@ -161,6 +201,44 @@ async function testarServidor() {
   conferir('Conta nova começa do zero (sem sequência inventada)', /0\/100 pontos/.test(bd?.corpo ?? '') && !/dias seguidos/.test(bd?.corpo ?? ''), bd?.corpo);
   const semLogin = await fetch(`${URL_SB}/functions/v1/notificar`, { method: 'POST', body: JSON.stringify({ tipo: 'teste' }) });
   conferir('Testar notificação exige login', semLogin.status === 401, String(semLogin.status));
+
+  await testarContas(a, b);
+}
+
+// ---------------------------------------------------------------- 2b. contas (como no app antigo)
+
+async function testarContas(a, b) {
+  const jwt = async (conta) => (await conta.cliente.auth.getSession()).data.session.access_token;
+  const negado = await chamarContas({ acao: 'pessoas' }, await jwt(a));
+  conferir('Só o dono vê as pessoas', negado.status === 403, `${negado.status}`);
+  await sql(`update public.perfis set dono = true where user_id = '${a.id}'`);
+  const pessoas = await chamarContas({ acao: 'pessoas' }, await jwt(a));
+  conferir('Dono vê a lista de pessoas', pessoas.corpo?.pessoas?.some((x) => x.user_id === b.id), `${pessoas.status}`);
+  const nova = await chamarContas({ acao: 'nova-senha', user_id: b.id }, await jwt(a));
+  const comNova = createClient(URL_SB, CONFIG.supabaseAnonKey, { auth: { persistSession: false } });
+  const { error: eNova } = await comNova.auth.signInWithPassword({ email: email('b'), password: nova.corpo?.senha ?? '-' });
+  conferir('Dono gera senha provisória e ela funciona', /^[a-z2-9]{4}-[a-z2-9]{4}$/.test(nova.corpo?.senha ?? '') && !eNova, eNova?.message ?? `${nova.status}`);
+  const conviteErrado = await chamarContas({ acao: 'criar', convite: '0'.repeat(36), nome: 'Intruso', senha: 'qualquer123' });
+  conferir('Criar conta com convite errado é recusado', conviteErrado.status === 403, `${conviteErrado.status}`);
+
+  // Conta que veio do app antigo: entra com a senha antiga; o Atalho antigo do Apple Pay continua valendo.
+  const loginD = nomeDeEntrada(NOME_D);
+  const idD = await criarUsuario(emailDeEntrada(loginD), `aleatoria-${Math.random()}`, NOME_D);
+  await sql(`update public.perfis set login = '${loginD}' where user_id = '${idD}';
+    insert into public.contas_antigas (user_id, id_antigo, login, senha_hash, atalho_hash)
+    values ('${idD}', '${marca.padEnd(16, '0').slice(0, 16).replace(/[^a-f0-9]/g, 'a')}', '${loginD}', '${await hashSenha(SENHA_ANTIGA_D)}', '${resumoAtalhoAntigo(SEGREDO_ATALHO_D)}')`);
+  const errada = await chamarContas({ acao: 'senha-antiga', nome: NOME_D, senha: 'senha-errada' });
+  conferir('Senha antiga errada é recusada', errada.status === 401, `${errada.status}`);
+
+  const antiga = await fetch(`${SITE}/api/gasto/${SEGREDO_ATALHO_D}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ valor: 'R$ 9,99', local: 'Padaria (atalho antigo)', cartao: 'Cartão Antigo' }),
+  });
+  const corpoAntigo = await antiga.json().catch(() => null);
+  const [{ n: noD }] = await sql(`select count(*)::int as n from public.gastos where user_id = '${idD}' and valor = 9.99 and estabelecimento = 'Padaria (atalho antigo)'`);
+  conferir('Atalho antigo do Apple Pay (endereço do site) continua funcionando', antiga.status === 200 && noD === 1, `${antiga.status} ${JSON.stringify(corpoAntigo)}`);
+  const falso = await fetch(`${SITE}/api/gasto/endereco-que-nao-existe-123456`, { method: 'POST', body: '{"valor":"1"}' });
+  conferir('Endereço antigo inventado é recusado', falso.status === 404, String(falso.status));
 }
 
 // ---------------------------------------------------------------- 3. avisos diários
@@ -241,13 +319,16 @@ async function testarApp() {
     });
     console.log(`[diagnóstico] elementos fora do app: ${JSON.stringify(estranhos)}`);
     await foto('1-entrada');
-    await p.click('[data-modo=criar]');
-    await p.fill('input[name=nome]', 'Teste');
-    await p.fill('input[name=email]', email('c'));
+    conferir('App: entrada pede nome (não e-mail)', await p.locator('input[name=nome]').count() === 1 && await p.locator('input[name=email]').count() === 0);
+    await sql("insert into public.convite (id, codigo) values (1, encode(gen_random_bytes(18), 'hex')) on conflict (id) do nothing");
+    const [{ codigo }] = await sql('select codigo from public.convite where id = 1');
+    await p.goto(`${SITE}/#convite=${codigo}`, { waitUntil: 'networkidle' });
+    await p.waitForSelector('text=Você foi convidado', { timeout: 20000 });
+    await p.fill('input[name=nome]', NOME_C);
     await p.fill('input[name=senha]', SENHA);
     await p.click('button[type=submit]');
     await p.waitForSelector('.camarada-cartao', { timeout: 20000 });
-    conferir('App: criar conta pela tela', true);
+    conferir('App: criar conta pelo link de convite', true);
     conferir('App: abre na aba Hoje, com saudação', /^(Bom dia|Boa tarde|Boa noite)/.test(await p.locator('.topo h1').innerText()));
     await p.click('[data-tela=tarefas]');
     await p.waitForSelector('.segmentos', { timeout: 15000 });
@@ -260,7 +341,7 @@ async function testarApp() {
     await p.click('#folha button[type=submit]');
     await p.waitForSelector('.linha', { timeout: 15000 });
     await p.waitForTimeout(500);
-    conferir('App: tarefa criada vai para Vencendo', (await p.locator('[aria-selected=true]').innerText()).includes('Vencendo'));
+    conferir('App: tarefa criada vai para A expirar', (await p.locator('[aria-selected=true]').innerText()).includes('A expirar'));
     conferir('App: horário aparece no prazo', (await p.locator('.lista').innerText()).includes('Vence amanhã às 18h'));
     await p.locator('.linha .marcar').first().click();
     await p.click('.dialogo [data-r="1"]');
@@ -331,7 +412,7 @@ async function testarApp() {
 
     // Compra pelo Atalho, com o código desta conta, e o app recarrega ao voltar.
     const c = createClient(URL_SB, CONFIG.supabaseAnonKey, { auth: { persistSession: false } });
-    await c.auth.signInWithPassword({ email: email('c'), password: SENHA });
+    await c.auth.signInWithPassword({ email: emailDeEntrada(NOME_C), password: SENHA });
     const { data: perfil } = await c.from('perfis').select('token_atalho').single();
     const compra = await registrarCompra({ token: perfil.token_atalho, valor: 'R$ 8,50', estabelecimento: 'Café', cartao: 'Nubank' });
     const t0 = Date.now();
@@ -356,6 +437,21 @@ async function testarApp() {
     await p.click('[data-acao=automaticas]');
     await p.waitForTimeout(600);
     await foto('4-compras-automaticas');
+    await p.click('#folha [data-fechar]');
+
+    // Sair e entrar com o nome e a senha do app antigo (primeira entrada depois da mudança).
+    await p.click('[data-acao=sair]');
+    await p.click('.dialogo [data-r="1"]');
+    await p.waitForSelector('#form-entrada', { timeout: 15000 });
+    await p.fill('input[name=nome]', `  ${NOME_D.toUpperCase()} `);
+    await p.fill('input[name=senha]', SENHA_ANTIGA_D);
+    await p.click('button[type=submit]');
+    await p.waitForSelector('.camarada-cartao', { timeout: 20000 });
+    const [{ h: restou }] = await sql(`select count(senha_hash)::int as h from public.contas_antigas where login = '${nomeDeEntrada(NOME_D)}'`);
+    conferir('App: entra com o nome e a senha do app antigo', restou === 0, `senha antiga ainda guardada: ${restou}`);
+    await p.click('[data-tela=ajustes]');
+    await p.waitForSelector('[data-acao=trocar-senha]', { timeout: 10000 });
+    await foto('5-ajustes-conta');
     conferir('App: sem erros na tela', erros.length === 0, erros.join(' | '));
   } catch (e) {
     await foto('erro').catch(() => {});
@@ -368,7 +464,7 @@ async function testarApp() {
 // ---------------------------------------------------------------- principal
 
 async function limpar() {
-  const r = await sql(`delete from auth.users where email like '${PREFIXO}%${DOMINIO}' returning email`);
+  const r = await sql(`delete from auth.users where email like '${PREFIXO}%${DOMINIO}' or email like '${PREFIXO}%@contas.camarada-organizador.netlify.app' returning email`);
   console.log(`Limpeza: ${r.length} contas de teste apagadas (com tudo o que era delas).`);
 }
 

@@ -69,15 +69,15 @@ function aviso(texto, desfazer) {
   timerAviso = setTimeout(() => el.remove(), desfazer ? 5000 : 3000);
 }
 
-function confirmar({ titulo, texto = '', ok = 'OK', perigo = false }) {
+function confirmar({ titulo, texto = '', ok = 'OK', perigo = false, unico = false }) {
   return new Promise((resolve) => {
     const camada = document.createElement('div');
     camada.className = 'camada centro';
     camada.innerHTML = `
       <div class="dialogo" role="alertdialog" aria-modal="true" aria-labelledby="dlg-t">
-        <div class="dialogo-texto"><h3 id="dlg-t">${esc(titulo)}</h3>${texto ? `<p>${esc(texto)}</p>` : ''}</div>
+        <div class="dialogo-texto"><h3 id="dlg-t">${esc(titulo)}</h3>${texto ? `<p style="white-space:pre-line">${esc(texto)}</p>` : ''}</div>
         <div class="dialogo-botoes">
-          <button type="button" data-r="0">Cancelar</button>
+          ${unico ? '' : '<button type="button" data-r="0">Cancelar</button>'}
           <button type="button" data-r="1" class="${perigo ? 'perigo' : ''}">${esc(ok)}</button>
         </div>
       </div>`;
@@ -212,41 +212,39 @@ async function carregarFinancas() {
 
 function telaEntrada() {
   const { modo, erro, ok } = estado.entrada;
-  const titulos = {
-    entrar: 'Entrar',
-    criar: 'Criar conta',
-    esqueci: 'Recuperar senha',
-    'nova-senha': 'Nova senha',
-  };
-  const campos = {
-    entrar: ['email', 'senha'],
-    criar: ['nome', 'email', 'senha'],
-    esqueci: ['email'],
-    'nova-senha': ['senha'],
-  }[modo];
+  const titulos = { entrar: 'Entrar', criar: 'Criar conta', esqueci: 'Esqueci minha senha', 'nova-senha': 'Nova senha' };
+  const campos = { entrar: ['nome', 'senha'], criar: ['nome', 'senha'], esqueci: [], 'nova-senha': ['senha'] }[modo];
   const campo = {
-    nome: '<div class="campo bloco"><input name="nome" autocomplete="name" placeholder="Seu nome" required></div>',
-    email: '<div class="campo bloco"><input name="email" type="email" autocomplete="email" inputmode="email" placeholder="E-mail" required></div>',
+    nome: `<div class="campo bloco"><input name="nome" autocomplete="username" autocapitalize="words" autocorrect="off" spellcheck="false" maxlength="60" placeholder="${modo === 'criar' ? 'Seu nome' : 'Nome'}" required></div>`,
     senha: `<div class="campo bloco"><input name="senha" type="password" minlength="6" autocomplete="${modo === 'entrar' ? 'current-password' : 'new-password'}" placeholder="${modo === 'entrar' ? 'Senha' : 'Senha (mínimo 6 caracteres)'}" required></div>`,
   };
+  const textoTopo = {
+    entrar: 'Suas tarefas e seu dinheiro, em ordem.',
+    criar: 'Você foi convidado. Escolha o nome com que vai entrar e uma senha.',
+    esqueci: '',
+    'nova-senha': 'Escolha a sua senha nova.',
+  }[modo];
   return `
     <main class="entrada">
       <div class="marca">
         <img src="icons/icon-192.png" alt="">
         <h1>Camarada</h1>
-        <p>Suas tarefas e seu dinheiro, em ordem.</p>
+        ${textoTopo ? `<p>${textoTopo}</p>` : ''}
       </div>
-      ${MODO_DEMO ? '<p class="aviso-demo">Modo demonstração: use qualquer e-mail e senha.</p>' : ''}
+      ${MODO_DEMO ? '<p class="aviso-demo">Modo demonstração: use qualquer nome e senha.</p>' : ''}
+      ${modo === 'esqueci' ? `
+        <div class="grupo"><div class="item" style="display:block;font-weight:500;line-height:1.45">
+          Peça para quem cuida do Camarada abrir <strong>Ajustes → Pessoas</strong> e tocar em <strong>Nova senha</strong> no seu nome.
+          Entre com a senha que aparecer e troque depois em <strong>Ajustes → Trocar senha</strong>.</div></div>
+        <button class="link" data-acao="modo-entrada" data-modo="entrar">Voltar</button>` : `
       <form id="form-entrada" novalidate>
         <div class="grupo">${campos.map((c) => campo[c]).join('')}</div>
         ${erro ? `<p class="erro" role="alert">${esc(erro)}</p>` : ''}
         ${ok ? `<p class="ok-msg" role="status">${esc(ok)}</p>` : ''}
         <button class="btn-grande" type="submit">${titulos[modo]}</button>
-      </form>
-      ${modo === 'entrar' ? `
-        <button class="link" data-acao="modo-entrada" data-modo="criar">Não tem conta? Criar conta</button>
-        <button class="link" data-acao="modo-entrada" data-modo="esqueci" style="margin-top:0">Esqueci minha senha</button>` : ''}
-      ${modo === 'criar' || modo === 'esqueci' ? '<button class="link" data-acao="modo-entrada" data-modo="entrar">Já tenho conta</button>' : ''}
+      </form>`}
+      ${modo === 'entrar' ? '<button class="link" data-acao="modo-entrada" data-modo="esqueci">Esqueci minha senha</button>' : ''}
+      ${modo === 'criar' ? '<button class="link" data-acao="modo-entrada" data-modo="entrar">Já tenho conta</button>' : ''}
     </main>`;
 }
 
@@ -255,8 +253,9 @@ async function enviarEntrada(form) {
   const { modo } = estado.entrada;
   const botao = form.querySelector('button[type=submit]');
   estado.entrada.erro = '';
-  if (dados.email !== undefined && !/^\S+@\S+\.\S+$/.test(dados.email)) {
-    estado.entrada.erro = 'Digite um e-mail válido.';
+  estado.entrada.ok = '';
+  if (dados.nome !== undefined && dados.nome.trim().length < 2) {
+    estado.entrada.erro = 'Escreva o seu nome.';
     return render();
   }
   if (dados.senha !== undefined && dados.senha.length < 6) {
@@ -264,19 +263,12 @@ async function enviarEntrada(form) {
     return render();
   }
   botao.disabled = true;
+  botao.textContent = 'Aguarde…';
   try {
-    if (modo === 'entrar') await api.entrar(dados.email.trim(), dados.senha);
+    if (modo === 'entrar') await api.entrar(dados.nome.trim(), dados.senha);
     if (modo === 'criar') {
-      const { precisaConfirmar } = await api.cadastrar(dados.nome.trim(), dados.email.trim(), dados.senha);
-      if (precisaConfirmar) {
-        estado.entrada = { modo: 'entrar', erro: '', ok: 'Conta criada! Abra o e-mail que enviamos e toque no link para confirmar.' };
-        render();
-      }
-    }
-    if (modo === 'esqueci') {
-      await api.recuperarSenha(dados.email.trim());
-      estado.entrada = { modo: 'entrar', erro: '', ok: 'Enviamos um link para criar uma nova senha. Confira seu e-mail.' };
-      render();
+      await api.criarConta(estado.entrada.convite, dados.nome.trim(), dados.senha);
+      history.replaceState(null, '', '#hoje');
     }
     if (modo === 'nova-senha') {
       await api.trocarSenha(dados.senha);
@@ -288,6 +280,20 @@ async function enviarEntrada(form) {
     estado.entrada.erro = e.message;
     render();
   }
+}
+
+/** Link de convite: .../#convite=<código>. Abre direto em "Criar conta". */
+async function lerConvite() {
+  const m = location.hash.match(/^#convite=([0-9a-f]{36})$/);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname);
+  if (estado.usuario) return aviso('Você já está numa conta. Para criar outra, saia primeiro.');
+  let valido = false;
+  try { valido = await api.conviteValido(m[1]); } catch { /* sem internet */ }
+  estado.entrada = valido
+    ? { modo: 'criar', convite: m[1], erro: '', ok: '' }
+    : { modo: 'entrar', erro: 'Este link de convite não vale mais. Peça um novo para quem te convidou.', ok: '' };
+  render();
 }
 
 // ---------------------------------------------------------------- tela Hoje (o Camarada)
@@ -441,7 +447,7 @@ async function verBomDia() {
 // ---------------------------------------------------------------- tela Tarefas
 
 const ICONE_ABA = { pendentes: ic.calendario, vencendo: ic.alerta, concluidas: ic.checkCirculo };
-const NOME_ABA = { pendentes: 'Pendentes', vencendo: 'Vencendo', concluidas: 'Feitas' };
+const NOME_ABA = { pendentes: 'Pendentes', vencendo: 'A expirar', concluidas: 'Concluídas' };
 
 function telaTarefas() {
   const abas = abasTarefas();
@@ -456,8 +462,8 @@ function telaTarefas() {
 
   const vazios = {
     pendentes: ['Nada pendente', 'Toque em + para adicionar uma tarefa com prazo.'],
-    vencendo: ['Tudo em dia', 'Nenhuma tarefa vencendo nos próximos dias.'],
-    concluidas: ['Nenhuma tarefa feita ainda', 'As tarefas concluídas aparecem aqui.'],
+    vencendo: ['Tudo em dia', 'Nenhuma tarefa a expirar nos próximos dias.'],
+    concluidas: ['Nenhuma tarefa concluída ainda', 'As tarefas concluídas aparecem aqui.'],
   };
 
   return `
@@ -1153,6 +1159,93 @@ function folhaAutomaticas() {
   });
 }
 
+function folhaTrocarSenha() {
+  abrirFolha(`
+    <form>
+      <div class="folha-topo"><button type="button" data-fechar>Cancelar</button><h2>Trocar senha</h2><button type="submit">Salvar</button></div>
+      <input type="text" name="usuario" autocomplete="username" value="${esc(estado.perfil.login || estado.usuario.email)}" hidden>
+      <div class="grupo">
+        <div class="campo bloco"><input name="atual" type="password" autocomplete="current-password" placeholder="Senha atual" required></div>
+        <div class="campo bloco"><input name="nova" type="password" minlength="6" autocomplete="new-password" placeholder="Senha nova (mínimo 6 caracteres)" required></div>
+      </div>
+      <p class="erro" hidden></p>
+    </form>`,
+  (el, fechar) => {
+    el.querySelector('[data-fechar]').onclick = fechar;
+    el.querySelector('form').onsubmit = async (e) => {
+      e.preventDefault();
+      const d = Object.fromEntries(new FormData(e.target));
+      const erro = el.querySelector('.erro');
+      if (d.nova.length < 6) {
+        erro.textContent = 'A senha nova precisa ter pelo menos 6 caracteres.';
+        erro.hidden = false;
+        return;
+      }
+      const botao = el.querySelector('button[type=submit]');
+      botao.disabled = true;
+      try {
+        await api.trocarSenha(d.nova, d.atual);
+        fechar();
+        aviso('Senha trocada');
+      } catch (falha) {
+        erro.textContent = falha.message;
+        erro.hidden = false;
+        botao.disabled = false;
+      }
+    };
+  });
+}
+
+async function folhaPessoas() {
+  let pessoas = [];
+  let codigo = '';
+  const ok = await tentar(async () => { [pessoas, codigo] = await Promise.all([api.pessoas(), api.convite()]); });
+  if (!ok) return;
+  const link = () => `${location.origin}${location.pathname}#convite=${codigo}`;
+  abrirFolha(`
+    <div class="folha-topo"><span style="min-width:72px"></span><h2>Pessoas</h2><button data-fechar>OK</button></div>
+    <h3 class="grupo-titulo" style="margin-top:4px">Link de convite</h3>
+    <div class="grupo"><ul class="lista">
+      <li><button class="item acao" data-enviar>${ic.compartilhar}Enviar link de convite</button></li>
+    </ul></div>
+    <p class="dica" style="text-align:left;margin:-10px 4px 0">Só com este link dá para criar conta. A pessoa abre no Safari e escolhe o nome e a senha dela.</p>
+    <h3 class="grupo-titulo">Contas</h3>
+    <div class="grupo"><ul class="lista">
+      ${pessoas.map((x) => `
+        <li><div class="item"><span class="rotulo">${esc(x.nome || x.login || 'Sem nome')}${x.dono ? ' <span class="etiqueta">cuida do app</span>' : ''}</span>
+          <button class="btn-pilula" data-nova-senha="${x.user_id}" data-nome="${esc(x.nome || x.login || '')}">Nova senha</button></div></li>`).join('')}
+    </ul></div>
+    <p class="dica" style="text-align:left;margin:-10px 4px 0">Alguém esqueceu a senha? Toque em Nova senha e passe para a pessoa a senha que aparecer. Ela troca depois em Ajustes.</p>
+    <button class="link" data-novo-link>Trocar o link de convite</button>`,
+  (el, fechar) => {
+    el.querySelector('[data-fechar]').onclick = fechar;
+    el.querySelector('[data-enviar]').onclick = async () => {
+      const dados = { title: 'Camarada', text: 'Crie sua conta no Camarada:', url: link() };
+      try {
+        if (navigator.share) await navigator.share(dados);
+        else { await navigator.clipboard.writeText(link()); aviso('Link copiado'); }
+      } catch (e) {
+        if (e?.name !== 'AbortError') prompt('Copie o link:', link());
+      }
+    };
+    el.querySelector('[data-novo-link]').onclick = async () => {
+      const sim = await confirmar({ titulo: 'Trocar o link?', texto: 'O link antigo para de funcionar. Quem já tem conta continua entrando normalmente.', ok: 'Trocar', perigo: true });
+      if (!sim) return;
+      await tentar(async () => { codigo = await api.convite(true); }, 'Link novo criado');
+    };
+    el.querySelectorAll('[data-nova-senha]').forEach((b) => {
+      b.onclick = async () => {
+        const nome = b.dataset.nome;
+        const sim = await confirmar({ titulo: `Nova senha para ${nome}?`, texto: 'A senha atual dessa pessoa para de funcionar.', ok: 'Gerar' });
+        if (!sim) return;
+        let senha = '';
+        if (!(await tentar(async () => { senha = await api.novaSenhaPara(b.dataset.novaSenha); }))) return;
+        await confirmar({ titulo: `Senha de ${nome}`, texto: `${senha}\n\nPasse para a pessoa. Ela entra com o nome e esta senha, e troca em Ajustes → Trocar senha.`, ok: 'OK', unico: true });
+      };
+    });
+  });
+}
+
 // ---------------------------------------------------------------- tela Ajustes
 
 function telaAjustes() {
@@ -1161,9 +1254,11 @@ function telaAjustes() {
   const textoNotif = { granted: 'Ativadas', denied: 'Bloqueadas', default: 'Desativadas', indisponivel: 'Indisponíveis' }[permissao];
   return `
     <h3 class="grupo-titulo">Conta</h3>
-    <div class="grupo">
-      <div class="item"><span class="rotulo">${esc(p.nome || 'Sem nome')}</span><span class="valor-dir">${esc(estado.usuario.email)}</span></div>
-    </div>
+    <div class="grupo"><ul class="lista">
+      <li><div class="item"><span class="rotulo">${esc(p.nome || 'Sem nome')}</span><span class="valor-dir">${esc(p.login ? `entra como "${p.login}"` : estado.usuario.email)}</span></div></li>
+      <li><button class="item" data-acao="trocar-senha"><span class="rotulo">Trocar senha</span><span class="valor-dir">›</span></button></li>
+      ${p.dono ? '<li><button class="item" data-acao="pessoas"><span class="rotulo">Pessoas e convites</span><span class="valor-dir">›</span></button></li>' : ''}
+    </ul></div>
 
     <h3 class="grupo-titulo">Camarada</h3>
     <div class="grupo"><ul class="lista">
@@ -1194,7 +1289,7 @@ function telaAjustes() {
         <li><button class="item" data-acao="categoria" data-id="${c.id}"><span class="rotulo">${esc(c.nome)}</span><span class="valor-dir">avisar ${c.aviso_dias} ${c.aviso_dias === 1 ? 'dia' : 'dias'} antes ›</span></button></li>`).join('')}
       <li><button class="item acao" data-acao="categoria">${ic.mais}Nova categoria</button></li>
     </ul></div>
-    <p class="dica" style="text-align:left;margin:-10px 4px 0">A tarefa passa para "Vencendo" esse número de dias antes do prazo.</p>
+    <p class="dica" style="text-align:left;margin:-10px 4px 0">A tarefa passa para "A expirar" esse número de dias antes do prazo.</p>
 
     <h3 class="grupo-titulo">Notificações</h3>
     <div class="grupo"><ul class="lista">
@@ -1434,6 +1529,8 @@ const ACOES = {
   categoria: (el) => folhaCategoria(el.dataset.id),
   notificacoes: () => ativarNotificacoes(),
   'testar-notificacao': () => testarNotificacao(),
+  'trocar-senha': () => folhaTrocarSenha(),
+  pessoas: () => folhaPessoas(),
   sair: async () => {
     const sim = await confirmar({ titulo: 'Sair da conta?', ok: 'Sair', perigo: true });
     if (sim) await api.sair();
@@ -1455,7 +1552,10 @@ document.addEventListener('submit', (e) => {
   }
 });
 
-window.addEventListener('hashchange', () => irPara(location.hash.slice(1)));
+window.addEventListener('hashchange', () => {
+  if (location.hash.startsWith('#convite=')) lerConvite();
+  else irPara(location.hash.slice(1));
+});
 
 // Ao voltar para o app, busca o que mudou (ex.: compra registrada pelo Atalho).
 document.addEventListener('visibilitychange', async () => {
@@ -1497,6 +1597,7 @@ async function executarInicio() {
     return;
   }
   estado.iniciado = true;
+  if (location.hash.startsWith('#convite=')) return lerConvite();
   irPara(location.hash.slice(1) || 'hoje');
   verificarRecompensa();
   if (estado.usuario) renovarInscricao();
