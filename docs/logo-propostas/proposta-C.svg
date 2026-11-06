@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs>
+<linearGradient id="fe" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2a2a2e"/><stop offset="1" stop-color="#0d0d0f"/></linearGradient>
+<radialGradient id="brilho" cx="0.85" cy="0.1" r="0.9"><stop offset="0" stop-color="#ffffff" stop-opacity="0.14"/><stop offset="0.6" stop-color="#ffffff" stop-opacity="0"/></radialGradient>
+<linearGradient id="ambar" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffd48a"/><stop offset="1" stop-color="#ff9f5a"/></linearGradient>
+<linearGradient id="verde" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8be3b3"/><stop offset="1" stop-color="#3fbf83"/></linearGradient>
+</defs><rect width="1024" height="1024" fill="url(#fe)"/><rect width="1024" height="1024" fill="url(#brilho)"/><path d="M691.8 338.3 A250 250 0 0 0 468.6 265.8" fill="none" stroke="#ffffff" stroke-width="96" stroke-linecap="round"/><path d="M344.7 326.2 A250 250 0 0 0 326.2 679.3" fill="none" stroke="url(#ambar)" stroke-width="96" stroke-linecap="round"/><path d="M443.1 752.3 A250 250 0 0 0 691.8 685.7" fill="none" stroke="url(#verde)" stroke-width="96" stroke-linecap="round"/></svg>
