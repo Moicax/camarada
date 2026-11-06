@@ -285,7 +285,7 @@ function linhaTarefa(t) {
           <div class="tarefa-titulo">${esc(t.titulo)}</div>
           ${sub || cat || repete ? `<div class="tarefa-sub">${sub}${repete}${cat ? `<span class="etiqueta">${esc(cat.nome)}</span>` : ''}</div>` : ''}
         </div>
-        ${vencendo ? `<button class="btn-pilula" data-acao="adiar" data-id="${t.id}">${ic.adiar}Adiar</button>` : ''}
+        ${vencendo ? `<button class="btn-pilula so-icone" data-acao="adiar" data-id="${t.id}" aria-label="Adiar ${esc(t.titulo)}" title="Adiar">${ic.adiar}</button>` : ''}
       </div>
     </li>`;
 }
@@ -493,6 +493,19 @@ function rendaAtual() {
  * "R$ 2.800,00 que restam ÷ 26 dias = R$ 107,69 por dia".
  * O limite é calculado com o que restava no começo do dia; o gasto de hoje sai do "ainda dá".
  */
+/** Valor de destaque: "R$" discreto, reais grandes e centavos menores. */
+/** Valor dos cartões de números: "R$" pequeno para o valor caber inteiro. */
+function valorMini(n) {
+  const txt = formatarReal(n);
+  const negativo = txt.startsWith('-');
+  return `<span class="rs">${negativo ? '−' : ''}R$</span>${txt.replace(/^-?R\$ /, '')}`;
+}
+
+function valorGrande(n) {
+  const [inteiro, cent] = formatarReal(n).replace('R$ ', '').split(',');
+  return `<span class="moeda">R$</span><span class="reais">${inteiro}</span><span class="cent">,${cent}</span>`;
+}
+
 function explicarLimite(r) {
   const restavam = Math.round((r.resta + r.gastoHoje) * 100) / 100;
   const dias = r.diasRestantes === 1 ? 'hoje, último dia do mês' : `${r.diasRestantes} dias`;
@@ -519,20 +532,20 @@ function telaFinancas() {
     destaque = `
       <div class="destaque">
         <div class="legenda">${r.restaHoje >= 0 ? 'Hoje ainda dá para gastar' : 'Hoje você passou do limite em'}</div>
-        <div class="grande ${r.restaHoje >= 0 ? 'ok' : 'ruim'}">${formatarReal(Math.abs(r.restaHoje))}</div>
+        <div class="grande ${r.restaHoje >= 0 ? 'ok' : 'ruim'}">${valorGrande(Math.abs(r.restaHoje))}</div>
         <div class="detalhe">${explicarLimite(r)}</div>
       </div>`;
   } else if (estado.mes < mesAtual) {
     destaque = `
       <div class="destaque">
         <div class="legenda">${r.resta >= 0 ? 'Sobrou neste mês' : 'Passou do orçamento em'}</div>
-        <div class="grande ${r.resta >= 0 ? 'ok' : 'ruim'}">${formatarReal(Math.abs(r.resta))}</div>
+        <div class="grande ${r.resta >= 0 ? 'ok' : 'ruim'}">${valorGrande(Math.abs(r.resta))}</div>
       </div>`;
   } else {
     destaque = `
       <div class="destaque">
         <div class="legenda">Para gastar por dia</div>
-        <div class="grande ok">${formatarReal(r.porDia)}</div>
+        <div class="grande ok">${valorGrande(r.porDia)}</div>
       </div>`;
   }
 
@@ -546,8 +559,8 @@ function telaFinancas() {
   // Crédito vai para a fatura; à vista (débito, Pix, dinheiro) sai do salário na hora.
   const formas = r.gasto ? `
     <div class="dois">
-      <div class="mini"><div class="legenda">${ic.cartao} No crédito</div><div class="num">${formatarReal(r.credito)}</div><div class="nota">vai para a fatura</div></div>
-      <div class="mini"><div class="legenda">${ic.carteira} À vista</div><div class="num">${formatarReal(r.avista)}</div><div class="nota">débito, Pix, dinheiro</div></div>
+      <div class="mini"><div class="legenda">${ic.cartao} No crédito</div><div class="num">${valorMini(r.credito)}</div><div class="nota">vai para a fatura</div></div>
+      <div class="mini"><div class="legenda">${ic.carteira} À vista</div><div class="num">${valorMini(r.avista)}</div><div class="nota">débito, Pix, dinheiro</div></div>
     </div>` : '';
   const faturas = r.faturas.length ? `
     <h3 class="grupo-titulo">Faturas do mês</h3>
@@ -577,9 +590,9 @@ function telaFinancas() {
     </div>
     ${destaque}
     <div class="tres">
-      <button class="mini" data-acao="renda"><div class="legenda">Renda ›</div><div class="num">${formatarReal(r.renda)}</div>${r.entradas ? `<div class="nota mais">+ ${formatarReal(r.entradas)} de entradas</div>` : ''}</button>
-      <div class="mini"><div class="legenda">Gasto</div><div class="num">${formatarReal(r.gasto)}</div></div>
-      <div class="mini"><div class="legenda">Resta no mês</div><div class="num ${r.resta < 0 ? 'ruim' : ''}">${formatarReal(r.resta)}</div></div>
+      <button class="mini" data-acao="renda"><div class="legenda">Renda ›</div><div class="num">${valorMini(r.renda)}</div>${r.entradas ? `<div class="nota mais">+ ${formatarReal(r.entradas)} de entradas</div>` : ''}</button>
+      <div class="mini"><div class="legenda">Gasto</div><div class="num">${valorMini(r.gasto)}</div></div>
+      <div class="mini"><div class="legenda">Resta no mês</div><div class="num ${r.resta < 0 ? 'ruim' : ''}">${valorMini(r.resta)}</div></div>
     </div>
     ${renda ? `<div class="barra barra-geral ${pct >= 100 ? 'ruim' : ''}" role="progressbar" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Quanto da renda já foi gasto"><span style="width:${pct}%"></span></div>` : ''}
     ${formas}
