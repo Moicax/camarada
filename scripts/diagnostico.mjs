@@ -9,7 +9,7 @@ const consultas = {
 const fim = new Date().toISOString();
 const inicio = new Date(Date.now() - 40 * 60000).toISOString();
 for (const [nome, q] of Object.entries(consultas)) {
-  const r = await fetch(`https://api.supabase.com/v1/projects/${REF}/analytics/endpoints/logs.all?sql=${encodeURIComponent(q)}&iso_timestamp_start=${inicio}&iso_timestamp_end=${fim}`, { headers: H });
+  const r = await fetch(`https://api.supabase.com/v1/projects/${REF}/analytics/endpoints/logs?sql=${encodeURIComponent(q)}&iso_timestamp_start=${inicio}&iso_timestamp_end=${fim}`, { headers: H });
   const j = await r.json().catch(() => ({}));
   console.log(`== ${nome}: http ${r.status} ${j.error ? JSON.stringify(j.error).slice(0, 300) : ''} ${j.message ?? ''}`);
   for (const l of j.result ?? []) {
