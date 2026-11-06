@@ -174,7 +174,8 @@ async function testarServidor() {
   // Cartão marcado como débito: a compra do Atalho entra como à vista.
   const { data: cartao } = await a.cliente.from('cartoes').select('id').eq('nome', 'Cartão Teste').single();
   await a.cliente.from('cartoes').update({ debito: true }).eq('id', cartao.id);
-  const debito = await registrarCompra({ token: perfil.token_atalho, valor: '5,00', estabelecimento: 'Café (débito)', cartao: 'Cartão Teste' });
+  // Nomes de campo como alguém digita no Atalhos (com espaço sobrando e maiúscula): tem que funcionar igual.
+  const debito = await registrarCompra({ token: perfil.token_atalho, 'valor ': '5,00', 'Comerciante ': 'Café (débito)', cartao: 'Cartão Teste' });
   conferir('Compra com cartão de débito entra como à vista', debito.corpo?.forma === 'avista', `${debito.status} ${debito.corpo?.mensagem ?? debito.corpo?.erro ?? ''}`);
   conferir('Meta de gastos: aviso dos 80% sai na compra', debito.corpo?.meta?.nivel === 80 && debito.corpo?.meta?.enviado === true, JSON.stringify(debito.corpo?.meta));
   const passou = await registrarCompra({ token: perfil.token_atalho, valor: '5,00', estabelecimento: 'Mais um café', cartao: 'Cartão Teste' });

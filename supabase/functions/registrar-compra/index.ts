@@ -48,11 +48,15 @@ async function lerCorpo(req: Request): Promise<Record<string, unknown>> {
   return Object.keys(form).length > 1 ? form : { valor: bruto };
 }
 
-// Primeiro campo preenchido entre vários nomes possíveis, sem ligar para maiúsculas.
+// Nome do campo como a pessoa digitou no Atalhos: sem ligar para maiúsculas, acentos ou espaços
+// sobrando ("Valor ", "cartão" e "valor" são o mesmo campo).
+const nomeCampo = (k: string) => k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+// Primeiro campo preenchido entre vários nomes possíveis.
 function primeiro(obj: Record<string, unknown>, nomes: string[]) {
   for (const n of nomes) {
     for (const k of Object.keys(obj)) {
-      if (k.toLowerCase() === n && obj[k] != null && String(obj[k]).trim()) return obj[k];
+      if (nomeCampo(k) === nomeCampo(n) && obj[k] != null && String(obj[k]).trim()) return obj[k];
     }
   }
   return null;
@@ -69,7 +73,7 @@ async function acharPerfil(req: Request, corpo: Record<string, unknown>) {
     const { data: perfil } = await supabase.from('perfis').select('user_id, renda_mensal').eq('user_id', conta.user_id).single();
     return { perfil };
   }
-  const token = texto(corpo.token, 100);
+  const token = texto(primeiro(corpo, ['token', 'codigo', 'código']), 100);
   if (!token || !/^[0-9a-f]{48}$/.test(token)) {
     return { erro: resposta(401, { ok: false, erro: 'Código do Camarada inválido. Copie de novo no app.' }) };
   }
