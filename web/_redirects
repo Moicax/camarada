@@ -1,0 +1,3 @@
+# O Atalho do Apple Pay do app antigo chama /api/gasto/<segredo>. Repassa para o servidor novo,
+# assim o Atalho que já está no iPhone continua funcionando sem mudar nada.
+/api/gasto/*  https://pejnliiixdxfmmzozqgw.supabase.co/functions/v1/registrar-compra/legado/:splat  200!

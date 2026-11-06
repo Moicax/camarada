@@ -1,0 +1,371 @@
+﻿<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Camarada</title>
+<meta name="theme-color" id="meta-tema" content="#F2F2F7">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Camarada">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icones/icone-180.png">
+<link rel="icon" type="image/png" href="icones/icone-192.png">
+<link rel="stylesheet" href="estilo.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+
+<section id="tela-entrada" class="entrada" hidden>
+  <form id="form-entrada" class="entrada-caixa" novalidate>
+    <img class="marca" src="icones/icone-192.png" alt="" width="72" height="72">
+    <h1>Camarada</h1>
+    <p id="entrada-texto" class="entrada-texto">Carregando…</p>
+    <label for="nome" class="rotulo">Seu nome</label>
+    <input type="text" id="nome" autocomplete="username" autocapitalize="words" autocorrect="off" spellcheck="false" maxlength="30" enterkeyhint="next">
+    <label for="senha" class="rotulo">Senha</label>
+    <input type="password" id="senha" autocomplete="current-password" autocapitalize="off" spellcheck="false">
+    <label class="marcar"><input type="checkbox" id="mostrar-senha"> Mostrar senha</label>
+    <button type="submit" class="primario" id="btn-entrar">Entrar</button>
+    <p id="entrada-erro" class="erro" role="alert"></p>
+    <button type="button" class="texto" id="entrada-trocar" hidden>Já tenho conta</button>
+  </form>
+</section>
+
+<div id="tela-app" class="app" hidden>
+  <div class="fixo">
+    <header class="topo">
+      <div class="ola">
+        <h1 id="saudacao">Olá</h1>
+        <p id="data-hoje"></p>
+      </div>
+      <div class="topo-acoes">
+      <button type="button" id="btn-novo" class="icone" aria-label="Nova tarefa">
+        <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" style="stroke-width:2.2"><path d="M12 4.5v15M4.5 12h15"/></svg>
+      </button>
+      <button type="button" id="btn-ajustes" class="icone" aria-label="Ajustes">
+        <svg viewBox="0 0 24 24" width="25" height="25" aria-hidden="true" style="stroke-width:1.8"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.35a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.54 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.65 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.54a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15.1 4.65a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.46 9c.26.6.85 1 1.51 1.03H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z"/></svg>
+      </button>
+      </div>
+    </header>
+    <nav class="abas" id="abas-tarefas" role="tablist" aria-label="Abas">
+      <button type="button" role="tab" id="aba-pendentes" data-aba="pendentes" aria-controls="lista"><svg class="ic-aba" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6.5h11M9 12h11M9 17.5h11M4.2 6.5h.1M4.2 12h.1M4.2 17.5h.1"/></svg>Pendentes <span class="n"></span></button>
+      <button type="button" role="tab" id="aba-expirar" data-aba="expirar" aria-controls="lista"><svg class="ic-aba" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.8V12l3.4 2.2"/></svg>A expirar <span class="n"></span></button>
+      <button type="button" role="tab" id="aba-feitas" data-aba="feitas" aria-controls="lista"><svg class="ic-aba" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="m7.8 12.4 2.9 2.9 5.6-6"/></svg>Concluídas <span class="n"></span></button>
+    </nav>
+  </div>
+  <p id="faixa-rede" class="faixa" hidden></p>
+  <div id="dica-instalar" class="faixa dica" hidden>
+    <p>Para usar como app: toque em <b>Compartilhar</b> e depois em <b>Adicionar à Tela de Início</b>.</p>
+    <button type="button" id="fechar-dica" class="icone pequeno" aria-label="Fechar dica">✕</button>
+  </div>
+  <main class="conteudo" id="vista-tarefas">
+    <ul id="lista" class="lista" role="tabpanel"></ul>
+  </main>
+
+  <main class="conteudo" id="vista-financas" hidden>
+    <div class="mes">
+      <button type="button" id="mes-ant" class="icone" aria-label="Mês anterior"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" style="stroke-width:2.4"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <h2 id="mes-nome"></h2>
+      <button type="button" id="mes-prox" class="icone" aria-label="Próximo mês"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" style="stroke-width:2.4"><path d="M9 5l7 7-7 7"/></svg></button>
+    </div>
+    <button type="button" id="fin-resumo" class="resumo" aria-describedby="fin-dica-renda">
+      <span class="resumo-rot" id="fin-rot">Sobra do mês</span>
+      <span class="resumo-valor" id="fin-sobra">R$ 0,00</span>
+      <span class="resumo-conta">
+        <span class="lc"><span>Salário do mês</span><b id="fin-renda">R$ 0,00</b></span>
+        <span class="lc"><span>Gastos à vista</span><b id="fin-avista">R$ 0,00</b></span>
+        <span class="lc forte"><span>Saldo agora</span><b id="fin-saldo">R$ 0,00</b></span>
+        <span class="lc"><span>Cartão de crédito</span><b id="fin-credito">R$ 0,00</b></span>
+      </span>
+      <span class="resumo-dia" id="fin-dia"></span>
+      <span class="resumo-dica" id="fin-dica-renda">Toque para informar quanto você recebe por mês</span>
+    </button>
+    <div id="fin-gastos"></div>
+    <div id="fin-cartoes-bloco" hidden>
+      <span class="rotulo">Faturas do mês</span>
+      <ul id="fin-cartoes" class="cats faturas"></ul>
+    </div>
+  </main>
+
+  <nav class="barra-secoes" aria-label="Seções">
+    <button type="button" class="secao" id="sec-tarefas" data-secao="tarefas">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="m7.8 12.4 2.9 2.9 5.6-6"/></svg>
+      <span>Tarefas</span>
+    </button>
+    <button type="button" class="secao" id="sec-financas" data-secao="financas">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14.5" rx="3"/><path d="M2.5 9.8h19M6.5 15h4"/></svg>
+      <span>Finanças</span>
+    </button>
+  </nav>
+  <div id="toast" class="toast" role="status" hidden><span id="toast-texto"></span><button type="button" id="toast-acao">Desfazer</button></div>
+</div>
+
+<dialog id="dlg-item" class="folha" aria-labelledby="item-titulo-dlg">
+  <form id="form-item" novalidate>
+    <div class="folha-topo">
+      <button type="button" class="texto" data-fechar>Cancelar</button>
+      <h2 id="item-titulo-dlg">Nova tarefa</h2>
+      <button type="submit" class="texto forte">Salvar</button>
+    </div>
+    <div class="folha-corpo">
+      <label for="item-titulo" class="rotulo">O que precisa fazer?</label>
+      <input type="text" id="item-titulo" maxlength="200" autocomplete="off" enterkeyhint="done">
+      <p id="item-erro" class="erro" role="alert"></p>
+      <span class="rotulo" id="rot-data">Até quando?</span>
+      <div class="chips" id="chips-data" role="group" aria-labelledby="rot-data">
+        <button type="button" data-dias="">Sem data</button>
+        <button type="button" data-dias="0">Hoje</button>
+        <button type="button" data-dias="1">Amanhã</button>
+        <button type="button" data-dias="7">Em 7 dias</button>
+      </div>
+      <div class="data-hora">
+        <input type="date" id="item-data" aria-label="Data limite">
+        <input type="time" id="item-hora" aria-label="Hora (opcional)" aria-describedby="dica-hora">
+      </div>
+      <p class="dica-campo" id="dica-hora">Hora é opcional. Com hora, o celular avisa faltando 3 h, 1 h e 10 min.</p>
+      <label for="item-categoria" class="rotulo">Categoria</label>
+      <div class="linha">
+        <select id="item-categoria"></select>
+        <button type="button" class="texto" id="item-nova-cat">Nova</button>
+      </div>
+      <details id="item-mais">
+        <summary>Mais opções</summary>
+        <label for="item-repetir" class="rotulo">Repetir</label>
+        <select id="item-repetir">
+          <option value="">Não repete</option>
+          <option value="semanal">Toda semana</option>
+          <option value="mensal">Todo mês</option>
+          <option value="anual">Todo ano</option>
+        </select>
+        <label for="item-notas" class="rotulo">Notas</label>
+        <textarea id="item-notas" rows="3" maxlength="2000"></textarea>
+      </details>
+      <button type="button" class="botao-grupo" id="item-adiar" hidden>Adiar prazo</button>
+      <button type="button" class="perigo" id="item-apagar" hidden>Apagar tarefa</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-gasto" class="folha" aria-labelledby="gasto-titulo-dlg">
+  <form id="form-gasto" novalidate>
+    <div class="folha-topo">
+      <button type="button" class="texto" data-fechar>Cancelar</button>
+      <h2 id="gasto-titulo-dlg">Novo gasto</h2>
+      <button type="submit" class="texto forte">Salvar</button>
+    </div>
+    <div class="folha-corpo">
+      <label for="gasto-valor" class="rotulo">Valor</label>
+      <input type="text" id="gasto-valor" class="campo-valor" inputmode="decimal" placeholder="R$ 0,00" autocomplete="off">
+      <p id="gasto-erro" class="erro" role="alert"></p>
+      <span class="rotulo" id="rot-forma">Como pagou</span>
+      <div class="segmento" id="gasto-forma" role="radiogroup" aria-labelledby="rot-forma">
+        <button type="button" role="radio" data-forma="credito">Crédito</button>
+        <button type="button" role="radio" data-forma="avista">À vista</button>
+      </div>
+      <p class="dica-campo">À vista: débito, Pix ou dinheiro.</p>
+      <label for="gasto-desc" class="rotulo">Onde ou com o quê</label>
+      <input type="text" id="gasto-desc" maxlength="120" autocomplete="off" placeholder="Mercado, farmácia, gasolina…">
+      <label for="gasto-cartao" class="rotulo">Cartão ou conta</label>
+      <input type="text" id="gasto-cartao" maxlength="40" list="lista-cartoes" autocomplete="off" placeholder="Nubank, Inter, Pix…">
+      <datalist id="lista-cartoes"></datalist>
+      <label for="gasto-data" class="rotulo">Dia</label>
+      <input type="date" id="gasto-data">
+      <button type="button" class="perigo" id="gasto-apagar" hidden>Apagar gasto</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-renda" class="folha" aria-labelledby="renda-titulo">
+  <form id="form-renda" novalidate>
+    <div class="folha-topo">
+      <button type="button" class="texto" data-fechar>Cancelar</button>
+      <h2 id="renda-titulo">O que você recebe</h2>
+      <button type="submit" class="texto forte">Salvar</button>
+    </div>
+    <div class="folha-corpo">
+      <label for="renda-valor" class="rotulo">Quanto você recebe por mês</label>
+      <input type="text" id="renda-valor" class="campo-valor" inputmode="decimal" placeholder="R$ 0,00" autocomplete="off">
+      <p class="dica-campo">Com este valor o Camarada calcula quanto sobra no mês e quanto dá para gastar por dia.</p>
+      <label class="linha-chave" for="renda-aviso">
+        <span>Avisar no celular a cada gasto do Apple Pay, com quanto sobra</span>
+        <input type="checkbox" id="renda-aviso" class="chave" role="switch">
+      </label>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-atalho" class="folha" aria-labelledby="atalho-titulo">
+  <div class="folha-topo">
+    <span></span>
+    <h2 id="atalho-titulo">Gastos automáticos</h2>
+    <button type="button" class="texto forte" data-fechar>Pronto</button>
+  </div>
+  <div class="folha-corpo">
+    <p class="explica">A cada compra feita aproximando o iPhone (Apple Pay), o próprio iPhone manda o valor, o local e o cartão para o Camarada. Funciona com todos os cartões da sua Carteira. Você configura uma vez só, no app <b>Atalhos</b>.</p>
+    <span class="rotulo">1. Copie o seu endereço secreto</span>
+    <div class="copia">
+      <input type="text" id="atalho-url" readonly aria-label="Endereço secreto para o Atalhos" value="Carregando…">
+      <button type="button" class="texto forte" id="atalho-copiar">Copiar</button>
+    </div>
+    <p class="dica-campo" id="atalho-res" aria-live="polite">Não mande este endereço para ninguém: com ele dá para lançar gastos no seu Camarada.</p>
+    <span class="rotulo">2. Crie a automação no app Atalhos</span>
+    <ol class="passos">
+      <li>No app <b>Atalhos</b>: <b>Automação</b> › <b>+</b> › <b>Carteira</b>. Deixe <b>Qualquer Cartão</b>.</li>
+      <li>Toque na setinha ao lado de <b>for aproximado</b>: ligue <b>Automação</b> e desligue <b>Notificar</b>.</li>
+      <li>Em <b>Buscar</b>, embaixo, digite <b>URL</b> e toque em <b>Obter conteúdo de URL</b>.</li>
+      <li>Toque em <b>URL</b> e cole o endereço.</li>
+      <li>Toque na setinha ao lado do endereço: <b>Método POST</b> e <b>Pedir Corpo JSON</b>.</li>
+      <li>Toque em <b>Adicionar novo campo</b> › <b>Texto</b>, três vezes. No valor de cada um: <b>Selecionar Variável</b> › <b>Transação</b>, toque nela e escolha:
+        <span class="campos"><code>valor</code> → <b>Valor</b><br><code>local</code> → <b>Comerciante</b><br><code>cartao</code> → <b>Cartão ou Tíquete</b></span></li>
+      <li>Toque em <b>‹</b> para salvar. Na próxima compra aproximando o iPhone, o gasto aparece aqui sozinho.</li>
+    </ol>
+    <p class="dica-campo">Não toque no ▶ do Atalhos para testar: sem uma compra de verdade ele dá erro. Teste com uma compra pequena.</p>
+    <button type="button" class="botao-grupo" id="atalho-novo">Trocar o endereço secreto</button>
+    <p class="dica-campo">Troque se achar que alguém viu o endereço. O antigo para de funcionar e você cola o novo no Atalhos.</p>
+  </div>
+</dialog>
+
+<dialog id="dlg-senha" class="folha" aria-labelledby="senha-titulo">
+  <form id="form-senha" novalidate>
+    <div class="folha-topo">
+      <button type="button" class="texto" data-fechar>Cancelar</button>
+      <h2 id="senha-titulo">Trocar senha</h2>
+      <button type="submit" class="texto forte">Salvar</button>
+    </div>
+    <div class="folha-corpo">
+      <input type="text" id="senha-conta" autocomplete="username" hidden>
+      <label for="senha-atual" class="rotulo">Senha atual</label>
+      <input type="password" id="senha-atual" autocomplete="current-password" autocapitalize="off" spellcheck="false">
+      <label for="senha-nova" class="rotulo">Senha nova</label>
+      <input type="password" id="senha-nova" autocomplete="new-password" autocapitalize="off" spellcheck="false">
+      <p class="dica-campo">Pelo menos 6 caracteres. Os outros aparelhos vão pedir a senha nova.</p>
+      <p id="senha-erro" class="erro" role="alert"></p>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-pessoas" class="folha" aria-labelledby="pessoas-titulo">
+  <div class="folha-topo">
+    <span></span>
+    <h2 id="pessoas-titulo">Pessoas</h2>
+    <button type="button" class="texto forte" data-fechar>Pronto</button>
+  </div>
+  <div class="folha-corpo">
+    <p class="explica">Cada pessoa tem a própria conta, com as próprias tarefas e finanças. O que é de uma não aparece para as outras.</p>
+    <span class="rotulo">Convidar alguém</span>
+    <div class="copia">
+      <input type="text" id="convite-url" readonly aria-label="Link de convite" value="Carregando…">
+      <button type="button" class="texto forte" id="convite-enviar">Enviar</button>
+    </div>
+    <p class="dica-campo" id="convite-res" aria-live="polite">Mande o link para a pessoa. Ela abre no Safari e cria a conta com o nome dela e uma senha.</p>
+    <span class="rotulo" id="rot-pessoas">Contas</span>
+    <ul class="cats" id="pessoas-lista" aria-labelledby="rot-pessoas"></ul>
+    <p class="dica-campo" id="pessoas-res" aria-live="polite">Alguém esqueceu a senha? Toque em Nova senha e passe para a pessoa a senha que aparecer. Ela troca depois em Ajustes.</p>
+    <button type="button" class="botao-grupo" id="convite-novo">Trocar o link de convite</button>
+    <p class="dica-campo">O link antigo para de funcionar. Quem já tem conta continua entrando normalmente.</p>
+  </div>
+</dialog>
+
+<dialog id="dlg-adiar" class="acoes" aria-labelledby="adiar-titulo" aria-describedby="adiar-item">
+  <div class="acoes-grupo">
+    <p class="acoes-titulo" id="adiar-titulo">Adiar o prazo</p>
+    <p class="acoes-sub" id="adiar-item"></p>
+    <button type="button" data-adiar="1">1 dia<small></small></button>
+    <button type="button" data-adiar="3">3 dias<small></small></button>
+    <button type="button" data-adiar="7">1 semana<small></small></button>
+    <button type="button" data-adiar="mes">1 mês<small></small></button>
+  </div>
+  <button type="button" class="acoes-cancelar" data-fechar>Cancelar</button>
+</dialog>
+
+<dialog id="dlg-concluir" class="pergunta" aria-labelledby="conc-titulo" aria-describedby="conc-item">
+  <h2 id="conc-titulo">Você deseja mesmo concluir essa tarefa?</h2>
+  <p id="conc-item" class="pergunta-item"></p>
+  <p id="conc-prox" class="dica-campo" hidden></p>
+  <div class="pergunta-botoes">
+    <button type="button" class="secundario" data-fechar>Cancelar</button>
+    <button type="button" class="confirmar" id="conc-sim">Concluir</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-cat" class="folha" aria-labelledby="cat-titulo-dlg">
+  <form id="form-cat" novalidate>
+    <div class="folha-topo">
+      <button type="button" class="texto" data-fechar>Cancelar</button>
+      <h2 id="cat-titulo-dlg">Nova categoria</h2>
+      <button type="submit" class="texto forte">Salvar</button>
+    </div>
+    <div class="folha-corpo">
+      <label for="cat-nome" class="rotulo">Nome</label>
+      <input type="text" id="cat-nome" maxlength="40" autocomplete="off">
+      <p id="cat-erro" class="erro" role="alert"></p>
+      <span class="rotulo" id="rot-cat-cor">Cor</span>
+      <div class="cores" id="cat-cores" role="radiogroup" aria-labelledby="rot-cat-cor"></div>
+      <label for="cat-aviso" class="rotulo">Entrar em A expirar quantos dias antes?</label>
+      <input type="number" id="cat-aviso" min="0" max="365" inputmode="numeric">
+      <p class="dica-campo">Exemplo: documentos precisam de uns 45 dias de folga; contas, de uns 5.</p>
+      <button type="button" class="perigo" id="cat-apagar" hidden>Apagar categoria</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-ajustes" class="folha" aria-labelledby="aj-titulo">
+  <div class="folha-topo">
+    <span></span>
+    <h2 id="aj-titulo">Ajustes</h2>
+    <button type="button" class="texto forte" data-fechar>Pronto</button>
+  </div>
+  <div class="folha-corpo">
+    <label for="aj-apelido" class="rotulo com-selo"><span class="selo" style="background:#007AFF"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/></svg></span>Como chamar você</label>
+    <input type="text" id="aj-apelido" maxlength="30" autocomplete="off">
+    <span class="rotulo com-selo" id="rot-aj-cor"><span class="selo" style="background:#FF9500"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.3 0 2-1 2-2 0-1.6-1.4-2 0-3.4.9-.9 2.6-.6 4-.6a3 3 0 0 0 3-3C21 6.5 17 3 12 3Z"/><path d="M7.5 11h.1M10 7.5h.1M14.5 7.5h.1"/></svg></span>Cor do app</span>
+    <div class="cores" id="aj-cores" role="radiogroup" aria-labelledby="rot-aj-cor"></div>
+    <span class="rotulo com-selo" id="rot-aj-tema"><span class="selo" style="background:#5856D6"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17Z" fill="currentColor"/></svg></span>Aparência</span>
+    <div class="segmento" id="aj-tema" role="radiogroup" aria-labelledby="rot-aj-tema"></div>
+    <span class="rotulo com-selo" id="rot-aj-avisos"><span class="selo" style="background:#FF3B30"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15l1.5-2Z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg></span>Avisos</span>
+    <div class="grupo" aria-labelledby="rot-aj-avisos">
+      <div class="grupo-linha">
+        <span class="grupo-nome">Notificações neste celular</span>
+        <button type="button" class="texto forte" id="aj-push" hidden>Ativar</button>
+      </div>
+      <p class="grupo-nota" id="aj-push-estado">Verificando…</p>
+    </div>
+    <label for="aj-horario" class="rotulo">Horário dos avisos</label>
+    <select id="aj-horario"></select>
+    <button type="button" class="botao-grupo" id="aj-teste">Enviar aviso de teste</button>
+    <p class="dica-campo" id="aj-teste-res" aria-live="polite"></p>
+    <div class="secao-cab">
+      <span class="rotulo com-selo"><span class="selo" style="background:#AF52DE"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12.6V4.5a1 1 0 0 1 1-1h8.1l8 8a1.5 1.5 0 0 1 0 2.1l-6.9 6.9a1.5 1.5 0 0 1-2.1 0l-8-8Z"/><path d="M8 8h.1"/></svg></span>Categorias</span>
+      <button type="button" class="texto" id="aj-nova-cat">Nova categoria</button>
+    </div>
+    <ul id="aj-cats" class="cats"></ul>
+    <label for="aj-aviso" class="rotulo">Aviso padrão (dias antes do prazo)</label>
+    <input type="number" id="aj-aviso" min="0" max="365" inputmode="numeric">
+    <p class="dica-campo">Vale para tarefas sem categoria.</p>
+
+    <span class="rotulo com-selo" id="rot-aj-fin"><span class="selo" style="background:#34C759"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14.5" rx="3"/><path d="M2.5 9.8h19M6.5 15h4"/></svg></span>Finanças</span>
+    <ul class="cats" aria-labelledby="rot-aj-fin">
+      <li><button type="button" id="aj-renda"><span class="nome">Salário do mês</span><span class="dias" id="aj-renda-valor"></span></button></li>
+      <li><button type="button" id="aj-atalho"><span class="nome">Gastos automáticos do Apple Pay</span></button></li>
+    </ul>
+    <span class="rotulo" id="rot-aj-debito">Cartões de débito</span>
+    <ul class="cats" id="aj-debito" aria-labelledby="rot-aj-debito"></ul>
+    <p class="dica-campo">Ligue nos cartões de débito: as compras com eles saem do salário na hora, em vez de ir para a fatura.</p>
+    <span class="rotulo com-selo" id="rot-aj-conta"><span class="selo" style="background:#636366"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg></span>Conta</span>
+    <ul class="cats" aria-labelledby="rot-aj-conta">
+      <li><button type="button" id="aj-senha"><span class="nome">Trocar senha</span></button></li>
+      <li id="aj-pessoas-linha" hidden><button type="button" id="aj-pessoas"><span class="nome">Pessoas e convites</span></button></li>
+    </ul>
+    <p class="dica-campo" id="aj-conta-nome"></p>
+    <div id="aj-instalar" class="faixa dica" hidden>
+      <p>Para usar como app no iPhone: abra no Safari, toque em <b>Compartilhar</b> e depois em <b>Adicionar à Tela de Início</b>.</p>
+    </div>
+    <button type="button" class="perigo" id="aj-sair">Sair deste aparelho</button>
+    <p class="assinatura">Camarada · versão 04/11/2026<br>Criado por Moisés Dias · com Claude Code</p>
+  </div>
+</dialog>
+
+</body>
+</html>

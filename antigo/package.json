@@ -1,0 +1,22 @@
+{
+  "name": "camarada",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Organizador pessoal do Camarada: Pendentes, A expirar e Concluídas.",
+  "type": "module",
+  "scripts": {
+    "start": "node servidor/servidor.js",
+    "previa": "node servidor/semear-previa.js && node servidor/servidor.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "netlify-cli": "^27.16.2"
+  }
+}
