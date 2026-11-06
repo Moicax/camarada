@@ -1,66 +1,47 @@
-# Atalho "Camarada – Registrar compra"
+# Compras automáticas do Apple Pay
 
 O iPhone não deixa nenhum app ler as compras do Apple Pay diretamente. O caminho é o app
-**Atalhos**: ele tem uma automação chamada **Transação** que roda a cada pagamento com Apple Pay
-e entrega o valor, o estabelecimento e o cartão.
+**Atalhos**: a automação **Carteira** ("Quando Qualquer Cartão for aproximado") roda a cada
+pagamento com o iPhone e entrega o valor, o comerciante e o cartão.
 
-Este atalho é criado **uma vez só**, por quem cuida do Camarada. Depois, o link do iCloud vai
-para `web/config.js` (`atalhoUrl`) e cada pessoa só toca em *Instalar atalho* dentro do app e cola
-o próprio código.
+A Apple exige que cada pessoa crie a própria automação (não dá para compartilhar uma automação
+por link). Por isso o app faz o resto ficar fácil:
 
-> Os nomes abaixo são os do iOS 18 em português. Se algum estiver um pouco diferente no seu
-> iPhone, procure pelo equivalente.
+## O que cada pessoa faz (explicado no app, em Ajustes → Compras automáticas)
 
-## Criar o atalho
+1. **Copiar texto**: o app copia um texto pronto, já com o código pessoal dela.
+2. No app **Atalhos** → **Automação** → **+** → **Carteira** → *Qualquer Cartão* →
+   **Executar Imediatamente** → **Seguinte** → **Nova Automação em Branco**.
+3. Na caixa **"Descreva…"**, cola o texto: o próprio Atalhos monta a automação.
+4. Paga algo com o iPhone. A compra aparece em Finanças e o status fica verde.
 
-1. Abra **Atalhos** → **+** (novo atalho). Dê o nome **Camarada – Registrar compra**.
-2. Adicione a ação **Texto** e escreva `COLE_SEU_CODIGO` dentro dela.
-3. Adicione a ação **Obter Conteúdo do URL**:
-   - URL: `https://<project-ref>.supabase.co/functions/v1/registrar-compra`
-   - Toque em **Mostrar Mais**:
-     - **Método**: `POST`
-     - **Corpo da Solicitação**: `JSON`
-     - Adicione 4 campos, todos do tipo **Texto**:
+O texto está em `web/lib/atalho.js` (`textoDaAutomacao`). É o texto que funcionou num iPhone
+real (iOS em português): mudar as palavras pode mudar o que o Atalhos monta.
 
-| Chave | Valor |
+Sem a caixa "Descreva…" (iPhones sem Apple Intelligence), o app mostra o passo a passo à mão,
+com botões para copiar o endereço e o código.
+
+## O que a automação manda
+
+`POST https://<projeto>.supabase.co/functions/v1/registrar-compra`, corpo JSON:
+
+| Campo | Variável no iPhone |
 |---|---|
-| `token` | variável **Texto** (da ação do passo 2) |
-| `valor` | **Entrada do Atalho** → toque nela e escolha **Valor** |
-| `estabelecimento` | **Entrada do Atalho** → **Comerciante** |
-| `cartao` | **Entrada do Atalho** → **Cartão ou Passe** |
+| `valor` | Valor |
+| `comerciante` | Comerciante |
+| `cartao` | Cartão ou Tíquete |
+| `token` | o código da pessoa (Ajustes → Compras automáticas) |
 
-4. Toque no **ⓘ** (detalhes do atalho) → **Configurar Importação** (ou *Perguntas de Importação*) →
-   **Adicionar Pergunta** → escolha o texto `COLE_SEU_CODIGO`. Pergunta:
-   `Cole o seu código do Camarada (Finanças → Compras automáticas → Copiar código)`.
-5. Toque em **Compartilhar** → **Copiar Link do iCloud**. Esse é o `atalhoUrl`.
+O servidor também entende `estabelecimento`/`local` no lugar de `comerciante`, e não liga para
+maiúsculas, acentos ou espaços sobrando nos nomes dos campos.
 
-## O que cada pessoa faz (já explicado dentro do app)
+## Status da conexão
 
-1. No Camarada: **Finanças → Compras automáticas → Copiar código**.
-2. **Instalar atalho** → *Adicionar Atalho* → cola o código.
-3. Atalhos → **Automação** → **+** → **Transação** → marca os cartões → **Executar Imediatamente** →
-   **Seguinte** → escolhe *Camarada – Registrar compra*.
+Cada chamada do Atalho fica anotada em `tentativas_atalho` (14 dias). O app mostra a última:
+⏳ aguardando a primeira compra, ✅ conectado (última compra recebida…), ⚠️ o que corrigir
+(ex.: "a compra chegou sem o valor").
 
-A Apple não permite instalar uma automação por link, por isso o passo 3 sempre é manual.
+## Atalho do app antigo
 
-## Testar sem comprar nada
-
-No computador, com o código de uma conta:
-
-```bash
-curl -X POST https://<project-ref>.supabase.co/functions/v1/registrar-compra \
-  -H 'content-type: application/json' \
-  -d '{"token":"<codigo>","valor":"R$ 1,00","estabelecimento":"Teste","cartao":"Nubank"}'
-```
-
-Resposta esperada: `{"ok":true,"mensagem":"R$ 1,00 · Teste — Nubank · ..."}`. A compra aparece em
-Finanças e chega uma notificação (se estiverem ativadas). Depois é só apagar o gasto de teste no app.
-
-## Se não funcionar
-
-| Sintoma | Causa provável |
-|---|---|
-| Nada acontece ao pagar | A automação usa o gatilho **NFC** em vez de **Transação**, ou não está em *Executar Imediatamente* |
-| Aparece "Código do Camarada inválido" | Código colado errado ou gerado de novo no app. Copie de novo e reinstale o atalho |
-| Aparece "Valor inválido" | O campo `valor` não está ligado a **Entrada do Atalho → Valor** |
-| Compra aparece, mas sem notificação | Notificações não ativadas em **Ajustes** do Camarada, ou o app não foi adicionado à Tela de Início |
+Quem já tinha o Atalho do app antigo (endereço `https://camarada-organizador.netlify.app/api/gasto/<segredo>`)
+não precisa mudar nada: o site repassa esse endereço para `registrar-compra/legado/<segredo>`.

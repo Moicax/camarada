@@ -1,10 +1,13 @@
-// Leva o app único (antigo + novo) para o endereço principal: https://camarada-organizador.netlify.app
-// Roda só quando o dono aprova (ramo "trocar-principal", ver .github/workflows/trocar-principal.yml).
+// Publica no endereço principal (https://camarada-organizador.netlify.app) o que já foi conferido no
+// endereço de teste. Roda só quando o dono aprova (ramo "trocar-principal", ver
+// .github/workflows/trocar-principal.yml).
 //
 //  1. Anota a versão que está no ar (para poder voltar em segundos, se precisar).
-//  2. Copia de novo as contas do app antigo (só leitura lá), para não perder nada lançado até agora.
-//  3. Publica a pasta web/ no endereço principal, logo em seguida.
-//  4. Confere: o site novo abre, aponta para o servidor novo e o Atalho antigo do Apple Pay é repassado.
+//  2. Publica a pasta web/ no endereço principal.
+//  3. Confere: o site abre, aponta para o servidor e o Atalho antigo do Apple Pay é repassado.
+//
+// Não copia mais nada do app antigo: isso foi feito uma vez só, na troca de 06/11/2026. Copiar de
+// novo apagaria o que as pessoas lançaram depois.
 import { execFileSync } from 'node:child_process';
 import { appendFile } from 'node:fs/promises';
 import { CONFIG } from '../web/config.js';
@@ -32,12 +35,9 @@ async function principal() {
   const anterior = site.published_deploy?.id;
   await resumo(`Versão que estava no ar (para voltar, se precisar): ${anterior}`);
 
-  console.log('\n▶ Copiando as contas do app antigo (versão mais recente)');
-  execFileSync('node', ['scripts/copiar-antigo.mjs'], { stdio: 'inherit' });
-
   console.log('\n▶ Publicando no endereço principal');
   execFileSync('npx', ['--yes', 'netlify-cli@17.38.1', 'deploy', '--dir', 'web', '--prod', '--site', site.id,
-    '--auth', tokenNl, '--message', `App único (antigo + novo) ${process.env.GITHUB_SHA?.slice(0, 7) ?? ''}`], { stdio: 'inherit' });
+    '--auth', tokenNl, '--message', `Camarada ${process.env.GITHUB_SHA?.slice(0, 7) ?? ''}`], { stdio: 'inherit' });
 
   console.log('\n▶ Conferindo o endereço principal');
   const novo = (await nl(`/sites/${site.id}`)).published_deploy?.id;
@@ -58,10 +58,9 @@ async function principal() {
   }
   if (falhas.length) throw new Error(`Depois da troca: ${falhas.join('; ')}. Para voltar: restaurar a versão ${anterior}.`);
 
-  await resumo('## ✅ App único no endereço principal');
-  await resumo(`- ${URL_PRINCIPAL} → versão ${novo}`);
-  await resumo('- Contas do app antigo copiadas de novo logo antes da troca');
-  await resumo('- Atalho antigo do Apple Pay repassado para o servidor novo ✓');
+  await resumo('## ✅ Publicado no endereço principal');
+  await resumo(`- ${URL_PRINCIPAL} → versão ${novo} (antes: ${anterior})`);
+  await resumo('- Atalho antigo do Apple Pay repassado para o servidor ✓');
 }
 
 principal().catch(async (e) => {

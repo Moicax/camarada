@@ -229,6 +229,12 @@ async function gravarConta(userId, idAntigo, acesso, login, c) {
 
 async function principal() {
   if (!tokenSb || !tokenNl) throw new Error('Faltam SUPABASE_ACCESS_TOKEN e NETLIFY_AUTH_TOKEN.');
+  // Trava de segurança: a cópia troca TODOS os dados das contas pelos do app antigo. Depois que o
+  // app novo foi para o endereço principal (06/11/2026), isso apagaria o que foi lançado desde então.
+  const cfg = await (await fetch(`https://camarada-organizador.netlify.app/config.js?v=${Date.now()}`)).text();
+  if (cfg.includes(REF) && process.env.COPIAR_MESMO_ASSIM !== 'sim') {
+    throw new Error('O app novo já está no endereço principal: copiar de novo apagaria o que foi lançado depois da troca. Nada foi feito.');
+  }
   const sites = await chamar('https://api.netlify.com/api/v1/sites?filter=all&name=camarada-organizador', { headers: { authorization: `Bearer ${tokenNl}` } });
   const site = sites.find((s) => s.name === 'camarada-organizador');
   const { getStore } = await import('@netlify/blobs');

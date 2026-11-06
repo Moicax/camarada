@@ -451,6 +451,12 @@ async function testarApp() {
     await p.click('[data-tela=ajustes]');
     await p.click('[data-acao=automaticas]');
     await p.waitForTimeout(600);
+    // Status da conexão: esta conta já teve uma compra pelo Atalho, então tem que aparecer "Conectado".
+    await p.waitForSelector('.status-atalho.ok', { timeout: 15000 }).catch(() => {});
+    const status = await p.locator('.status-atalho').innerText().catch(() => '');
+    conferir('App: Compras automáticas mostra "Conectado" depois da compra pelo Atalho', /Conectado/.test(status), status.replace(/\s+/g, ' ').slice(0, 120));
+    const textoPronto = await p.locator('.texto-automacao').textContent();
+    conferir('App: texto pronto da automação já vem com o código da conta', textoPronto.includes(perfil.token_atalho) && textoPronto.includes('/functions/v1/registrar-compra'));
     await foto('4-compras-automaticas');
     await p.click('#folha [data-fechar]');
 

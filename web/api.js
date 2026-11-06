@@ -196,6 +196,11 @@ async function criarApiSupabase() {
       const linhas = ok(await sb.from('gastos').select('id').eq('origem', 'atalho').limit(1));
       return linhas.length > 0;
     },
+    /** Última vez que o Atalho do Apple Pay chamou o servidor para esta conta (ou null). */
+    async ultimaTentativaAtalho() {
+      return ok(await sb.from('tentativas_atalho').select('criado_em, status, motivo')
+        .order('criado_em', { ascending: false }).limit(1).maybeSingle());
+    },
 
     async rendaDoMes(mes) {
       return ok(await sb.from('rendas_mes').select('valor').eq('mes', mes).maybeSingle())?.valor ?? null;
@@ -397,6 +402,7 @@ function criarApiDemo() {
       salvar();
     },
     async temComprasAutomaticas() { return db.gastos.some((g) => g.origem === 'atalho'); },
+    async ultimaTentativaAtalho() { return null; },
 
     async rendaDoMes(mes) { return db.rendas[mes] ?? null; },
     async salvarRendaDoMes(mes, valor) {

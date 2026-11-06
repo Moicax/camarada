@@ -7,6 +7,7 @@ import {
 } from './lib/tasks.js';
 import { resumoMes, formatarReal, lerValor, nomeCartao, FORMAS, tipoDe } from './lib/finance.js';
 import { resumoCamarada, conselho, cumprimento, contarHoje } from './lib/camarada.js';
+import { textoDaAutomacao, situacaoDoAtalho } from './lib/atalho.js';
 
 // ---------------------------------------------------------------- utilidades
 
@@ -1119,41 +1120,62 @@ function folhaRenda({ padrao = false } = {}) {
 
 function folhaAutomaticas() {
   const token = estado.perfil.token_atalho;
-  const temLink = Boolean(CONFIG.atalhoUrl);
+  const texto = textoDaAutomacao(api.urlRegistrarCompra, token);
+  const caminho = (t) => `<span class="caminho">${t}</span>`;
   abrirFolha(`
     <div class="folha-topo"><span style="min-width:72px"></span><h2>Compras automáticas</h2><button data-fechar>OK</button></div>
+    <div class="status-atalho espera" data-status role="status"><span class="status-ponto"></span><span><strong>Conferindo…</strong><small></small></span></div>
     ${estado.perfil.atalho_antigo ? `<div class="grupo"><div class="item" style="display:block;font-weight:500;line-height:1.45">${ic.raio} <strong>Seu atalho do app antigo continua funcionando.</strong> As compras do Apple Pay continuam chegando aqui sozinhas: não precisa fazer nada. Os passos abaixo são só para um iPhone novo.</div></div>` : ''}
-    <p class="dica" style="margin:0 0 14px;text-align:left">Toda compra com Apple Pay vai aparecer em Finanças sozinha, com uma notificação dizendo quanto ainda dá para gastar hoje. Faça isto uma vez, neste iPhone:</p>
+    <p class="dica" style="margin:0 0 14px;text-align:left">Toda compra feita com o iPhone (Apple Pay) aparece sozinha em Finanças, com uma notificação de quanto ainda dá para gastar hoje. Faça isto uma vez, neste iPhone:</p>
     <div class="grupo"><ol class="passos">
-      <li><strong>Copie seu código pessoal</strong>
-        <p>Ele liga o atalho à sua conta. Não compartilhe com ninguém.</p>
-        <button class="btn-pilula azul" data-copiar>${ic.copiar}Copiar código</button></li>
-      <li><strong>Instale o atalho do Camarada</strong>
-        <p>Toque em <span class="caminho">Adicionar Atalho</span>. Quando ele pedir o código, cole.</p>
-        ${temLink
-          ? `<a class="btn-pilula azul" href="${esc(CONFIG.atalhoUrl)}" target="_blank" rel="noopener">${ic.compartilhar}Instalar atalho</a>`
-          : '<p class="erro">O link do atalho ainda não foi configurado.</p>'}</li>
+      <li><strong>Copie o texto pronto</strong>
+        <p>Ele já vem com o seu código pessoal. Não mande para ninguém.</p>
+        <button class="btn-pilula azul" data-copiar-texto>${ic.copiar}Copiar texto</button></li>
       <li><strong>Crie a automação</strong>
-        <p>Abra o app <span class="caminho">Atalhos</span> → <span class="caminho">Automação</span> → <span class="caminho">+</span> → <span class="caminho">Transação</span>. Marque todos os seus cartões, escolha <span class="caminho">Executar Imediatamente</span> e toque em <span class="caminho">Seguinte</span>. Escolha o atalho <span class="caminho">Camarada – Registrar compra</span>.</p></li>
+        <p>Abra o app ${caminho('Atalhos')} → ${caminho('Automação')} → ${caminho('+')} → ${caminho('Carteira')}. Deixe ${caminho('Qualquer Cartão')}, escolha ${caminho('Executar Imediatamente')} e toque em ${caminho('Seguinte')} → ${caminho('Nova Automação em Branco')}.</p></li>
+      <li><strong>Cole o texto</strong>
+        <p>Na caixa ${caminho('Descreva…')}, cole e envie: o Atalhos monta tudo sozinho. Confira se os campos mostram ${caminho('Valor')}, ${caminho('Comerciante')} e ${caminho('Cartão ou Tíquete')}.</p></li>
       <li><strong>Pronto</strong>
-        <p>Pague algo com Apple Pay. Em alguns segundos a compra aparece aqui.</p></li>
+        <p>Pague algo com o iPhone. Em alguns segundos a compra aparece em Finanças e o aviso lá em cima fica verde.</p></li>
     </ol></div>
-    <p class="dica">Compras sem Apple Pay (cartão físico, internet) você lança tocando em +.</p>
+    <details class="detalhes-atalho">
+      <summary>Ver o texto que vai ser copiado</summary>
+      <pre class="texto-automacao">${esc(texto)}</pre>
+    </details>
+    <details class="detalhes-atalho">
+      <summary>Seu iPhone não tem a caixa "Descreva…"? Monte à mão</summary>
+      <div class="grupo"><ol class="passos">
+        <li><strong>Crie a automação</strong>
+          <p>${caminho('Atalhos')} → ${caminho('Automação')} → ${caminho('+')} → ${caminho('Carteira')} → ${caminho('Executar Imediatamente')} → ${caminho('Seguinte')} → ${caminho('Nova Automação em Branco')}.</p></li>
+        <li><strong>Adicione "Obter Conteúdo do URL"</strong>
+          <p>Cole o endereço, toque na setinha e escolha ${caminho('Método: POST')} e ${caminho('Pedir Corpo: JSON')}.</p>
+          <button class="btn-pilula azul" data-copiar-url>${ic.copiar}Copiar endereço</button></li>
+        <li><strong>Adicione 4 campos, todos do tipo Texto</strong>
+          <p><b>valor</b> → variável ${caminho('Valor')} · <b>comerciante</b> → ${caminho('Comerciante')} · <b>cartao</b> → ${caminho('Cartão ou Tíquete')} · <b>token</b> → cole o seu código.</p>
+          <button class="btn-pilula azul" data-copiar-codigo>${ic.copiar}Copiar código</button></li>
+        <li><strong>Adicione "Mostrar Notificação"</strong>
+          <p>Com a variável ${caminho('Conteúdos do URL')}: ela mostra se a compra entrou.</p></li>
+      </ol></div>
+    </details>
+    <p class="dica">Compras sem o iPhone (cartão físico, internet, Pix) você lança tocando em +.</p>
     <button class="link" data-novo-codigo>Gerar um código novo</button>`,
   (el, fechar) => {
     el.querySelector('[data-fechar]').onclick = fechar;
-    el.querySelector('[data-copiar]').onclick = async () => {
+    const copiar = async (conteudo, feito) => {
       try {
-        await navigator.clipboard.writeText(token);
-        aviso('Código copiado');
+        await navigator.clipboard.writeText(conteudo);
+        aviso(feito);
       } catch {
-        prompt('Copie o código:', token);
+        prompt('Copie:', conteudo);
       }
     };
+    el.querySelector('[data-copiar-texto]').onclick = () => copiar(texto, 'Texto copiado: agora cole no app Atalhos');
+    el.querySelector('[data-copiar-url]').onclick = () => copiar(api.urlRegistrarCompra, 'Endereço copiado');
+    el.querySelector('[data-copiar-codigo]').onclick = () => copiar(token, 'Código copiado');
     el.querySelector('[data-novo-codigo]').onclick = async () => {
       const sim = await confirmar({
         titulo: 'Gerar código novo?',
-        texto: 'O código antigo para de funcionar. Você vai precisar instalar o atalho de novo com o código novo.',
+        texto: 'O código atual para de funcionar. Depois, copie o texto pronto de novo e refaça a automação (ou troque o código no campo token dela).',
         ok: 'Gerar',
         perigo: true,
       });
@@ -1161,6 +1183,18 @@ function folhaAutomaticas() {
       await tentar(async () => { estado.perfil.token_atalho = await api.novoToken(); }, 'Código novo gerado');
       folhaAutomaticas();
     };
+    // Situação da conexão: a última vez que o Atalho chamou o servidor para esta conta.
+    Promise.all([
+      api.ultimaTentativaAtalho().catch(() => null),
+      api.temComprasAutomaticas().catch(() => false),
+    ]).then(([tentativa, temCompras]) => {
+      const caixa = el.querySelector('[data-status]');
+      if (!caixa) return;
+      const s = situacaoDoAtalho({ tentativa, temCompras });
+      caixa.className = `status-atalho ${s.tom}`;
+      caixa.querySelector('strong').textContent = s.titulo;
+      caixa.querySelector('small').textContent = s.texto;
+    });
   });
 }
 
