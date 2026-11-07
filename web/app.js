@@ -855,9 +855,16 @@ function explicarLimite(r) {
   const porDia = `<strong>${formatarReal(r.porDia ?? 0)} por dia</strong>`;
   // Com contas a pagar e objetivos: "(R$ 2.800 que restam − R$ 420 separados) ÷ 26 dias".
   const separado = r.compromissos?.some((c) => c.objetivo) ? 'separados' : 'de contas';
-  const conta = r.comprometido
-    ? `(${formatarReal(Math.round((restavam + r.comprometido) * 100) / 100)} ${base} − ${formatarReal(r.comprometido)} ${separado}) ÷ ${dias} = ${porDia}`
-    : `${formatarReal(restavam)} ${base} ÷ ${dias} = ${porDia}`;
+  const antes = Math.round((restavam + (r.comprometido || 0)) * 100) / 100;
+  let conta;
+  if (antes < 0) {
+    // Já gastou mais do que tinha no período: o limite fica em zero até virar.
+    conta = `Já passou ${formatarReal(-antes)} do que tinha ${semana ? 'nesta semana' : 'neste mês'}: o limite fica em R$ 0 ${semana ? 'até domingo' : 'até o fim do mês'}.`;
+  } else if (r.comprometido) {
+    conta = `(${formatarReal(antes)} ${base} − ${formatarReal(r.comprometido)} ${separado}) ÷ ${dias} = ${porDia}`;
+  } else {
+    conta = `${formatarReal(restavam)} ${base} ÷ ${dias} = ${porDia}`;
+  }
   return r.gastoHoje ? `${conta}<br>Hoje você já gastou ${formatarReal(r.gastoHoje)}` : conta;
 }
 
