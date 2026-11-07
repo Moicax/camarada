@@ -54,7 +54,7 @@ test('repetição: semanal, mensal com dia 31, anual', () => {
 test('próxima ocorrência copia a tarefa e aponta para a original', () => {
   const t = { id: 'a1', titulo: 'Aluguel', vencimento: '2026-11-10', hora: '09:00:00', recorrencia: 'mensal', categoria_id: 'c1', notas: 'pix' };
   assert.deepEqual(proximaOcorrencia(t), {
-    titulo: 'Aluguel', notas: 'pix', categoria_id: 'c1', hora: '09:00', recorrencia: 'mensal',
+    titulo: 'Aluguel', notas: 'pix', valor: null, categoria_id: 'c1', hora: '09:00', recorrencia: 'mensal',
     dia_original: 10, vencimento: '2026-12-10', gerado_de: 'a1',
   });
   assert.equal(proximaOcorrencia({ ...t, recorrencia: null }), null);

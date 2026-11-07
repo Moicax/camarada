@@ -5,8 +5,8 @@ import { diaLocal, chaveMes, mudarMes, nomeMes, rotuloDia, diaCurto, diasEntre }
 import {
   separar, rotuloPrazo, OPCOES_ADIAR, adiar, AVISO_PADRAO, RECORRENCIAS, proximaOcorrencia, normalizarHora,
 } from './lib/tasks.js';
-import { resumoMes, formatarReal, lerValor, nomeCartao, FORMAS, tipoDe } from './lib/finance.js';
-import { resumoCamarada, conselho, cumprimento, contarHoje } from './lib/camarada.js';
+import { resumoMes, formatarReal, lerValor, nomeCartao, FORMAS, tipoDe, compromissosDoMes } from './lib/finance.js';
+import { resumoCamarada, conselho, cumprimento, contarHoje, proximaConta } from './lib/camarada.js';
 import { textoDaAutomacao, situacaoDoAtalho } from './lib/atalho.js';
 
 // ---------------------------------------------------------------- utilidades
@@ -93,6 +93,29 @@ function confirmar({ titulo, texto = '', ok = 'OK', perigo = false, unico = fals
   });
 }
 
+/** Diálogo com várias escolhas (uma embaixo da outra). Resolve com o `id` escolhido, ou null. */
+function escolher({ titulo, texto = '', opcoes }) {
+  return new Promise((resolve) => {
+    const camada = document.createElement('div');
+    camada.className = 'camada centro';
+    camada.innerHTML = `
+      <div class="dialogo" role="alertdialog" aria-modal="true" aria-labelledby="esc-t">
+        <div class="dialogo-texto"><h3 id="esc-t">${esc(titulo)}</h3>${texto ? `<p style="white-space:pre-line">${esc(texto)}</p>` : ''}</div>
+        <div class="dialogo-botoes vertical">
+          ${opcoes.map((o, i) => `<button type="button" data-i="${i}" class="${o.forte ? 'forte' : ''}">${esc(o.rotulo)}</button>`).join('')}
+        </div>
+      </div>`;
+    const fim = (r) => { camada.remove(); resolve(r); };
+    camada.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-i]');
+      if (b) fim(opcoes[Number(b.dataset.i)].id ?? null);
+      else if (e.target === camada) fim(null);
+    });
+    document.body.append(camada);
+    camada.querySelector('[data-i="0"]').focus();
+  });
+}
+
 /** Abre uma folha que sobe de baixo. `montar(el, fechar)` liga os eventos. */
 function abrirFolha(html, montar) {
   fecharFolha();
@@ -143,6 +166,9 @@ async function carregarHistorico() {
 }
 
 const rendaDe = (mes) => Number(estado.historico.rendas[mes] ?? estado.perfil?.renda_mensal ?? 0);
+
+/** Contas a pagar do mês (tarefas abertas com valor): o dinheiro já tem dono. */
+const contasDoMes = (mes) => compromissosDoMes(estado.tarefas, mes, hoje());
 
 function camaradaAgora() {
   return resumoCamarada({
@@ -332,7 +358,7 @@ function linhaHoje(t) {
       <button class="marcar" data-acao="concluir" data-id="${t.id}" aria-label="Concluir ${esc(t.titulo)}">${ic.circulo}</button>
       <button class="tarefa-hoje-texto" data-acao="editar-tarefa" data-id="${t.id}">
         <strong>${esc(t.titulo)}</strong>
-        <small class="${atrasada ? 'prazo-atrasado' : 'prazo-urgente'}">${rotuloPrazo(t.vencimento, h, t.hora)}</small>
+        <small class="${atrasada ? 'prazo-atrasado' : 'prazo-urgente'}">${rotuloPrazo(t.vencimento, h, t.hora)}${Number(t.valor) > 0 ? ` · ${formatarReal(t.valor)}` : ''}</small>
       </button>
     </div></li>`;
 }
@@ -343,9 +369,12 @@ function telaHoje() {
   const { atrasadas, vencemHoje } = contarHoje(estado.tarefas, h);
   const mesAtual = chaveMes(h);
   const temRenda = rendaDe(mesAtual) > 0;
-  const fin = resumoMes({ renda: rendaDe(mesAtual), gastos: estado.historico.gastos, mes: mesAtual, hoje: h, ...metasDoPerfil() });
+  const fin = resumoMes({
+    renda: rendaDe(mesAtual), gastos: estado.historico.gastos, mes: mesAtual, hoje: h, ...metasDoPerfil(), compromissos: contasDoMes(mesAtual),
+  });
   const frase = conselho({
     atrasadas, vencemHoje, nivelMeta: fin.metaGasto?.nivel ?? null, restaHoje: temRenda ? fin.restaHoje : null, camarada: c,
+    conta: proximaConta(fin.compromissos, h),
   });
   const paraHoje = estado.tarefas
     .filter((t) => !t.concluida_em && t.vencimento && t.vencimento <= h)
@@ -382,7 +411,9 @@ function telaHoje() {
     <h3 class="grupo-titulo">Dinheiro</h3>
     <div class="grupo"><ul class="lista">
       <li><button class="item" data-acao="tela" data-tela="financas"><span class="rotulo">Para gastar hoje</span>
-        <span class="valor-dir ${temRenda && fin.restaHoje < 0 ? 'ruim' : ''}">${temRenda ? formatarReal(fin.restaHoje) : 'informe a renda'} ›</span></button></li>
+        <span class="valor-dir ${temRenda && fin.restaHoje < 0 ? 'ruim' : ''}">${temRenda ? formatarReal(fin.restaHoje ?? 0) : 'informe a renda'} ›</span></button></li>
+      ${fin.comprometido > 0 ? `<li><button class="item" data-acao="tela" data-tela="financas"><span class="rotulo">Contas do mês</span>
+        <span class="valor-dir">${formatarReal(fin.comprometido)} separados ›</span></button></li>` : ''}
       ${mg ? `<li><button class="item" data-acao="metas"><span class="rotulo">${mg.nivel ? '<span class="sinal-meta">!</span> ' : ''}Meta de gastos</span>
         <span class="valor-dir ${mg.nivel === 100 ? 'ruim' : mg.nivel === 80 ? 'atencao' : ''}">${Math.round(mg.pct * 100)}% usada ›</span></button></li>` : ''}
       ${mi ? `<li><button class="item" data-acao="metas"><span class="rotulo">Investido</span>
@@ -506,7 +537,7 @@ function linhaTarefa(t) {
         </button>
         <div class="tarefa-texto">
           <div class="tarefa-titulo">${esc(t.titulo)}</div>
-          ${sub || cat || repete ? `<div class="tarefa-sub">${sub}${repete}${cat ? `<span class="etiqueta">${esc(cat.nome)}</span>` : ''}</div>` : ''}
+          ${sub || cat || repete || t.valor ? `<div class="tarefa-sub">${sub}${repete}${Number(t.valor) > 0 ? `<span class="etiqueta valor">${formatarReal(t.valor)}</span>` : ''}${cat ? `<span class="etiqueta">${esc(cat.nome)}</span>` : ''}</div>` : ''}
         </div>
         ${vencendo ? `<button class="btn-pilula so-icone" data-acao="adiar" data-id="${t.id}" aria-label="Adiar ${esc(t.titulo)}" title="Adiar">${ic.adiar}</button>` : ''}
       </div>
@@ -516,33 +547,65 @@ function linhaTarefa(t) {
 async function concluir(id) {
   const t = estado.tarefas.find((x) => x.id === id);
   const proxima = proximaOcorrencia(t);
-  const sim = await confirmar({
-    titulo: 'Concluir tarefa?',
-    texto: proxima ? `${t.titulo}. Como ela repete, a próxima fica para ${diaCurto(proxima.vencimento)}.` : t.titulo,
-    ok: 'Concluir',
-  });
-  if (!sim) return;
+  const repete = proxima ? `Como ela repete, a próxima fica para ${diaCurto(proxima.vencimento)}.` : '';
+  const valor = Number(t.valor) > 0 ? Number(t.valor) : 0;
+  let registrar = false;
+  if (valor) {
+    // Conta com valor: "Paguei" já lança o gasto (sem precisar lançar à mão, sem contar duas vezes).
+    const escolha = await escolher({
+      titulo: 'Concluir conta?',
+      texto: `${t.titulo} · ${formatarReal(valor)}${repete ? `\n${repete}` : ''}`,
+      opcoes: [
+        { id: 'paguei', rotulo: `Paguei: registrar ${formatarReal(valor)}`, forte: true },
+        { id: 'ja', rotulo: 'Já lancei esse gasto' },
+        { id: null, rotulo: 'Cancelar' },
+      ],
+    });
+    if (!escolha) return render();
+    registrar = escolha === 'paguei';
+  } else {
+    const sim = await confirmar({ titulo: 'Concluir tarefa?', texto: proxima ? `${t.titulo}. ${repete}` : t.titulo, ok: 'Concluir' });
+    if (!sim) return render();
+  }
   const quando = new Date().toISOString();
   t.concluida_em = quando;
   render();
   atualizarBadge();
+  let idGasto = null;
   const ok = await tentar(async () => {
     await api.salvarTarefa({ id, concluida_em: quando });
     if (proxima) await api.salvarTarefa(proxima);
+    if (registrar) {
+      idGasto = await api.salvarGasto({
+        valor, estabelecimento: t.titulo.slice(0, 120), cartao: null, forma: 'avista', investimento: false, data: quando, tarefa_id: id,
+      });
+    }
   });
+  const atualizarDinheiro = async () => {
+    await carregarHistorico();
+    if (estado.tela === 'financas') await carregarFinancas();
+    else render();
+  };
   await recarregarTarefas();
+  if (registrar) { await atualizarDinheiro(); avisarMeta(); }
   if (!ok) return;
-  aviso(proxima ? `Feita · próxima em ${diaCurto(proxima.vencimento)}` : 'Tarefa concluída', async () => {
+  const texto = registrar ? `Paga · ${formatarReal(valor)} lançado em Finanças`
+    : proxima ? `Feita · próxima em ${diaCurto(proxima.vencimento)}` : valor ? 'Conta concluída' : 'Tarefa concluída';
+  aviso(texto, async () => {
     await tentar(async () => {
       await api.salvarTarefa({ id, concluida_em: null });
       if (proxima) await api.apagarGeradas(id);
+      if (idGasto) await api.apagarGasto(idGasto);
     });
-    recarregarTarefas();
+    await recarregarTarefas();
+    if (idGasto) { await atualizarDinheiro(); avisarMeta(); }
   });
 }
 
 async function reabrir(id) {
-  await tentar(() => api.salvarTarefa({ id, concluida_em: null }), 'Tarefa reaberta');
+  const t = estado.tarefas.find((x) => x.id === id);
+  const msg = Number(t?.valor) > 0 ? 'Conta reaberta: o valor volta a ficar separado. Se o gasto dela foi lançado, apague em Finanças.' : 'Tarefa reaberta';
+  await tentar(() => api.salvarTarefa({ id, concluida_em: null }), msg);
   recarregarTarefas();
 }
 
@@ -604,8 +667,9 @@ function folhaTarefa(id) {
           <select id="t-rep" name="recorrencia"><option value="">Não repete</option>${opcoesRep}</select></div>
         <div class="campo"><label for="t-cat">Categoria</label>
           <select id="t-cat" name="categoria_id"><option value="">Nenhuma</option>${opcoesCat}</select></div>
+        <div class="campo"><label for="t-valor">Valor</label><input id="t-valor" name="valor" inputmode="decimal" placeholder="Se for uma conta" value="${Number(t?.valor) > 0 ? Number(t.valor).toFixed(2).replace('.', ',') : ''}"></div>
       </div>
-      <p class="dica" style="margin:-10px 4px 14px;text-align:left">Com horário, você recebe lembretes 3 horas, 1 hora e 10 minutos antes. Sem data, a tarefa fica em Pendentes.</p>
+      <p class="dica" style="margin:-10px 4px 14px;text-align:left">Com horário, você recebe lembretes 3 horas, 1 hora e 10 minutos antes. Sem data, a tarefa fica em Pendentes. Com valor (uma conta), o dinheiro fica separado do que dá para gastar até você pagar.</p>
       <div class="grupo"><div class="campo bloco"><textarea name="notas" maxlength="2000" placeholder="Notas (opcional)">${esc(t?.notas)}</textarea></div></div>
       <p class="erro" hidden></p>
       ${t ? `<div class="grupo"><button type="button" class="item destrutivo" data-apagar>Apagar tarefa</button></div>` : ''}
@@ -630,14 +694,22 @@ function folhaTarefa(id) {
       const vencimento = d.vencimento || (hora ? hoje() : null);
       const recorrencia = d.recorrencia || null;
       if (recorrencia && !vencimento) return falhar('Para repetir, escolha uma data.');
+      const valor = d.valor.trim() ? lerValor(d.valor) : null;
+      if (valor !== null && (!Number.isFinite(valor) || valor <= 0)) return falhar('Digite o valor da conta, por exemplo 180,00, ou deixe em branco.');
+      if (valor && !vencimento) return falhar('Para separar o dinheiro da conta, escolha a data de vencimento.');
+      // Conta nova com valor, na categoria que já vinha marcada: vai para "Contas", se existir.
+      let categoria = d.categoria_id || null;
+      const contas = estado.categorias.find((c) => c.nome === 'Contas');
+      if (!t && valor && contas && categoria === catEscolhida) categoria = contas.id;
       const campos = {
         titulo: d.titulo.trim(),
         vencimento,
         hora,
         recorrencia,
         dia_original: recorrencia ? Number(vencimento.slice(8, 10)) : null,
-        categoria_id: d.categoria_id || null,
+        categoria_id: categoria,
         notas: d.notas.trim() || null,
+        valor,
       };
       if (t && (t.vencimento !== campos.vencimento || normalizarHora(t.hora) !== hora)) campos.avisos_enviados = [];
       fechar();
@@ -732,7 +804,12 @@ function valorGrande(n) {
 function explicarLimite(r) {
   const restavam = Math.round((r.resta + r.gastoHoje) * 100) / 100;
   const dias = r.diasRestantes === 1 ? 'hoje, último dia do mês' : `${r.diasRestantes} dias`;
-  const conta = `${formatarReal(restavam)} ${r.gastoHoje ? 'que restavam hoje cedo' : 'que restam no mês'} ÷ ${dias} = <strong>${formatarReal(r.porDia)} por dia</strong>`;
+  const base = r.gastoHoje ? 'que restavam hoje cedo' : 'que restam no mês';
+  const porDia = `<strong>${formatarReal(r.porDia ?? 0)} por dia</strong>`;
+  // Com contas a pagar: "(R$ 2.800 que restam − R$ 420 de contas) ÷ 26 dias".
+  const conta = r.comprometido
+    ? `(${formatarReal(Math.round((restavam + r.comprometido) * 100) / 100)} ${base} − ${formatarReal(r.comprometido)} de contas) ÷ ${dias} = ${porDia}`
+    : `${formatarReal(restavam)} ${base} ÷ ${dias} = ${porDia}`;
   return r.gastoHoje ? `${conta}<br>Hoje você já gastou ${formatarReal(r.gastoHoje)}` : conta;
 }
 
@@ -782,7 +859,7 @@ function telaFinancas() {
   const h = hoje();
   const mesAtual = chaveMes(h);
   const renda = rendaAtual();
-  const r = resumoMes({ renda, gastos: estado.gastos, mes: estado.mes, hoje: h, ...metasDoPerfil() });
+  const r = resumoMes({ renda, gastos: estado.gastos, mes: estado.mes, hoje: h, ...metasDoPerfil(), compromissos: contasDoMes(estado.mes) });
   const ehAtual = estado.mes === mesAtual;
 
   let destaque;
@@ -796,8 +873,8 @@ function telaFinancas() {
   } else if (ehAtual) {
     destaque = `
       <div class="destaque">
-        <div class="legenda">${r.restaHoje >= 0 ? 'Hoje ainda dá para gastar' : 'Hoje você passou do limite em'}</div>
-        <div class="grande ${r.restaHoje >= 0 ? 'ok' : 'ruim'}">${valorGrande(Math.abs(r.restaHoje))}</div>
+        <div class="legenda">${(r.restaHoje ?? 0) >= 0 ? 'Hoje ainda dá para gastar' : 'Hoje você passou do limite em'}</div>
+        <div class="grande ${(r.restaHoje ?? 0) >= 0 ? 'ok' : 'ruim'}">${valorGrande(Math.abs(r.restaHoje ?? 0))}</div>
         <div class="detalhe">${explicarLimite(r)}</div>
       </div>`;
   } else if (estado.mes < mesAtual) {
@@ -810,7 +887,7 @@ function telaFinancas() {
     destaque = `
       <div class="destaque">
         <div class="legenda">Para gastar por dia</div>
-        <div class="grande ok">${valorGrande(r.porDia)}</div>
+        <div class="grande ok">${valorGrande(r.porDia ?? 0)}</div>
       </div>`;
   }
 
@@ -847,6 +924,17 @@ function telaFinancas() {
         <div class="grupo"><ul class="lista">${lista.map(linhaGasto).join('')}</ul></div>`).join('')
     : `<div class="vazio">${ic.carteira}<strong>Nenhum gasto ${ehAtual ? 'neste mês ainda' : 'neste mês'}</strong>${ehAtual ? 'Toque em + para lançar um gasto.' : ''}</div>`;
 
+  // Contas a pagar (tarefas com valor, abertas): o dinheiro já tem dono até a conta ser paga.
+  const comDono = r.compromissos.length ? `
+    <h3 class="grupo-titulo">Já têm dono ${ehAtual ? 'este mês' : 'neste mês'} · ${formatarReal(r.comprometido)}</h3>
+    <div class="grupo contas-dono"><ul class="lista">${r.compromissos.map((c) => {
+      const faltam = diasEntre(h, c.vencimento);
+      return `<li><button class="item" data-acao="editar-tarefa" data-id="${c.id}">
+        <span class="rotulo">${esc(c.titulo)}<small class="${faltam < 0 ? 'prazo-atrasado' : faltam <= 1 ? 'prazo-urgente' : ''}">${rotuloPrazo(c.vencimento, h)}</small></span>
+        <span class="valor-dir">${formatarReal(c.valor)} ›</span></button></li>`;
+    }).join('')}</ul></div>
+    <p class="dica" style="text-align:left;margin:-10px 4px 0">Contas a pagar (tarefas com valor) já saem do que dá para gastar. Ao concluir, toque em "Paguei" e o gasto entra sozinho.</p>` : '';
+
   return `
     <div class="mes-nav">
       <button data-acao="mes" data-delta="-1" aria-label="Mês anterior">${ic.esquerda}</button>
@@ -860,6 +948,7 @@ function telaFinancas() {
       <div class="mini"><div class="legenda">Resta no mês</div><div class="num ${r.resta < 0 ? 'ruim' : ''}">${valorMini(r.resta)}</div></div>
     </div>
     ${renda ? `<div class="barra barra-geral ${pct >= 100 ? 'ruim' : ''}" role="progressbar" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Quanto da renda já foi gasto"><span style="width:${pct}%"></span></div>` : ''}
+    ${comDono}
     ${cartaoMetas(r)}
     ${formas}
     ${convite}
@@ -885,7 +974,7 @@ function linhaGasto(g) {
   const entrada = g.tipo === 'entrada';
   const investe = g.tipo === 'investimento' || g.tipo === 'resgate';
   const meta = entrada || investe ? [ROTULO_TIPO[g.tipo], hora]
-    : [g.cartao, g.tipo === 'estorno' ? 'Estorno' : g.forma === 'avista' ? 'À vista' : (g.cartao ? '' : 'Crédito'), hora];
+    : [g.tarefa_id ? 'Conta paga' : '', g.cartao, g.tipo === 'estorno' ? 'Estorno' : g.forma === 'avista' ? 'À vista' : (g.cartao ? '' : 'Crédito'), hora];
   const icone = entrada ? ic.entrada : investe ? ic.investir : auto ? ic.raio : ic.carteira;
   const classe = entrada ? 'entrada' : investe ? 'investe' : auto ? 'auto' : '';
   const titulo = entrada ? 'Entrada' : investe ? 'Investimento' : auto ? 'Registrado pelo Apple Pay' : 'Lançado à mão';

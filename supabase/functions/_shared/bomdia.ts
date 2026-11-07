@@ -1,8 +1,8 @@
 // Bom dia do Camarada: um resumo curto do dia, no horário que a pessoa escolheu para os avisos.
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { somarDias, chaveMes, mudarMes, diaLocal } from './dates.js';
-import { resumoMes } from './finance.js';
-import { resumoCamarada, contarHoje, conselho, cumprimento } from './camarada.js';
+import { resumoMes, compromissosDoMes } from './finance.js';
+import { resumoCamarada, contarHoje, conselho, cumprimento, proximaConta } from './camarada.js';
 import { enviarPush } from './push.ts';
 
 const FUSO = 'America/Sao_Paulo';
@@ -18,9 +18,9 @@ export async function mensagemDoDia(supabase: SupabaseClient, userId: string, ho
 
   const [perfil, tarefas, gastos, rendas] = await Promise.all([
     supabase.from('perfis').select('nome, renda_mensal, meta_gasto, recompensa_texto, recompensa_pontos, criado_em').eq('user_id', userId).single(),
-    supabase.from('tarefas').select('titulo, vencimento, concluida_em').eq('user_id', userId)
+    supabase.from('tarefas').select('titulo, vencimento, concluida_em, valor').eq('user_id', userId)
       .or(`concluida_em.is.null,concluida_em.gte.${somarDias(hoje, -62)}`),
-    supabase.from('gastos').select('valor, data, forma, investimento').eq('user_id', userId).gte('data', desde),
+    supabase.from('gastos').select('valor, data, forma, investimento, tarefa_id').eq('user_id', userId).gte('data', desde),
     supabase.from('rendas_mes').select('mes, valor').eq('user_id', userId).in('mes', [mesAnterior, mesAtual]),
   ]);
   for (const r of [perfil, tarefas, gastos, rendas]) if (r.error) throw r.error;
@@ -32,8 +32,11 @@ export async function mensagemDoDia(supabase: SupabaseClient, userId: string, ho
     metaPontos: p.recompensa_pontos, recompensa: p.recompensa_texto,
     desde: p.criado_em ? diaLocal(new Date(p.criado_em), FUSO) : undefined,
   });
+  // Contas a pagar do mês (tarefas com valor): já saem do que dá para gastar.
+  const compromissos = compromissosDoMes(tarefas.data ?? [], mesAtual, hoje);
   const fin = resumoMes({
     renda: rendaDe(mesAtual), gastos: gastos.data ?? [], mes: mesAtual, hoje, timeZone: FUSO, metaGasto: Number(p.meta_gasto) || 0,
+    compromissos,
   });
   const { atrasadas, vencemHoje } = contarHoje(tarefas.data ?? [], hoje);
 
@@ -47,7 +50,7 @@ export async function mensagemDoDia(supabase: SupabaseClient, userId: string, ho
   const nome = (p.nome ?? '').trim().split(/\s+/)[0];
   return {
     titulo: `${cumprimento(hora)}${nome ? `, ${nome}` : ''}!`,
-    corpo: `${partes.join(' · ')}. ${conselho({ atrasadas, vencemHoje, nivelMeta: fin.metaGasto?.nivel ?? null, restaHoje: fin.restaHoje, camarada })}`,
+    corpo: `${partes.join(' · ')}. ${conselho({ atrasadas, vencemHoje, nivelMeta: fin.metaGasto?.nivel ?? null, restaHoje: fin.restaHoje, camarada, conta: proximaConta(compromissos, hoje) })}`,
   };
 }
 

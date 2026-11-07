@@ -10,7 +10,7 @@
 // Publicar com: supabase functions deploy registrar-compra --no-verify-jwt
 // (a segurança vem do código pessoal, não do login, porque o Atalho não faz login).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
-import { lerValor, nomeCartao, resumoMes, formatarReal } from '../_shared/finance.js';
+import { lerValor, nomeCartao, resumoMes, formatarReal, compromissosDoMes } from '../_shared/finance.js';
 import { diaLocal, chaveMes } from '../_shared/dates.js';
 import { enviarPush } from '../_shared/push.ts';
 import { conferirMeta } from '../_shared/meta.ts';
@@ -162,12 +162,15 @@ Deno.serve(async (req) => {
   const inicio = new Date(Date.UTC(ano, m - 1, 1) - 3 * 3600_000).toISOString();
   const fim = new Date(Date.UTC(ano, m, 1) + 3 * 3600_000).toISOString();
 
-  const [{ data: gastos }, { data: rendaMes }] = await Promise.all([
-    supabase.from('gastos').select('valor, data, forma, investimento').eq('user_id', userId).gte('data', inicio).lt('data', fim),
+  const [{ data: gastos }, { data: rendaMes }, { data: contas }] = await Promise.all([
+    supabase.from('gastos').select('valor, data, forma, investimento, tarefa_id').eq('user_id', userId).gte('data', inicio).lt('data', fim),
     supabase.from('rendas_mes').select('valor').eq('user_id', userId).eq('mes', mes).maybeSingle(),
+    // Contas a pagar (tarefas abertas com valor): já saem do que dá para gastar.
+    supabase.from('tarefas').select('id, titulo, vencimento, valor, concluida_em').eq('user_id', userId)
+      .is('concluida_em', null).not('valor', 'is', null),
   ]);
   const renda = Number(rendaMes?.valor ?? perfil!.renda_mensal ?? 0);
-  const resumo = resumoMes({ renda, gastos: gastos ?? [], mes, hoje, timeZone: FUSO });
+  const resumo = resumoMes({ renda, gastos: gastos ?? [], mes, hoje, timeZone: FUSO, compromissos: compromissosDoMes(contas ?? [], mes, hoje) });
 
   const titulo = `${formatarReal(valor)}${estabelecimento ? ` · ${estabelecimento}` : ''}`;
   const detalhe =

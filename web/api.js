@@ -137,8 +137,8 @@ async function criarApiSupabase() {
 
     async tarefas() {
       return ok(await sb.from('tarefas')
-        .select('id, titulo, notas, vencimento, hora, recorrencia, dia_original, gerado_de, categoria_id, concluida_em, avisos_enviados')
-        .order('vencimento'));
+        .select('id, titulo, notas, valor, vencimento, hora, recorrencia, dia_original, gerado_de, categoria_id, concluida_em, avisos_enviados')
+        .order('vencimento')).map((t) => ({ ...t, valor: t.valor === null ? null : Number(t.valor) }));
     },
     async salvarTarefa({ id, ...campos }) {
       if (id) ok(await sb.from('tarefas').update(campos).eq('id', id));
@@ -155,7 +155,7 @@ async function criarApiSupabase() {
     async gastosDoMes(mes) {
       const { inicio, fim } = intervaloDoMes(mes);
       const linhas = ok(await sb.from('gastos')
-        .select('id, valor, estabelecimento, data, origem, forma, investimento, cartoes(nome)')
+        .select('id, valor, estabelecimento, data, origem, forma, investimento, tarefa_id, cartoes(nome)')
         .gte('data', inicio).lt('data', fim)
         .order('data', { ascending: false }));
       return linhas.map(({ cartoes, ...g }) => ({ ...g, valor: Number(g.valor), cartao: cartoes?.nome ?? null }));
@@ -164,7 +164,7 @@ async function criarApiSupabase() {
     async gastosDesde(dia) {
       const [a, m, d] = dia.split('-').map(Number);
       const linhas = ok(await sb.from('gastos')
-        .select('id, valor, estabelecimento, data, origem, forma, investimento, cartoes(nome)')
+        .select('id, valor, estabelecimento, data, origem, forma, investimento, tarefa_id, cartoes(nome)')
         .gte('data', new Date(a, m - 1, d).toISOString())
         .order('data', { ascending: false }));
       return linhas.map(({ cartoes, ...g }) => ({ ...g, valor: Number(g.valor), cartao: cartoes?.nome ?? null }));
@@ -177,10 +177,14 @@ async function criarApiSupabase() {
     async cartoes() {
       return ok(await sb.from('cartoes').select('id, nome, debito').order('nome'));
     },
-    async salvarGasto({ id, valor, estabelecimento, cartao, forma, investimento = false, data }) {
+    async salvarGasto({ id, valor, estabelecimento, cartao, forma, investimento = false, data, tarefa_id }) {
       const campos = { valor, estabelecimento, cartao_id: await idCartao(cartao), forma, investimento, data };
-      if (id) ok(await sb.from('gastos').update(campos).eq('id', id));
-      else ok(await sb.from('gastos').insert({ ...campos, origem: 'manual' }));
+      if (tarefa_id !== undefined) campos.tarefa_id = tarefa_id;
+      if (id) {
+        ok(await sb.from('gastos').update(campos).eq('id', id));
+        return id;
+      }
+      return ok(await sb.from('gastos').insert({ ...campos, origem: 'manual' }).select('id').single()).id;
     },
     async apagarGasto(id) {
       ok(await sb.from('gastos').delete().eq('id', id));
@@ -190,6 +194,7 @@ async function criarApiSupabase() {
       ok(await sb.from('gastos').insert({
         valor: g.valor, estabelecimento: g.estabelecimento, cartao_id: await idCartao(g.cartao),
         forma: g.forma, investimento: Boolean(g.investimento), data: g.data, origem: g.origem || 'manual',
+        tarefa_id: g.tarefa_id ?? null,
       }));
     },
     async temComprasAutomaticas() {
@@ -246,7 +251,7 @@ async function criarApiSupabase() {
 // ---------------------------------------------------------------- Demonstração
 
 function criarApiDemo() {
-  const CHAVE = 'camarada-demo-v4';
+  const CHAVE = 'camarada-demo-v5';
   const novoId = () => Math.random().toString(36).slice(2, 10);
   const hoje = diaLocal();
   const quando = (dias, hora) => {
@@ -265,13 +270,13 @@ function criarApiDemo() {
         { id: cat.geral, nome: 'Geral', aviso_dias: 3 },
       ],
       tarefas: [
-        { id: novoId(), titulo: 'Pagar conta de luz', vencimento: somarDias(hoje, 1), hora: '18:00', categoria_id: cat.contas },
-        { id: novoId(), titulo: 'Aluguel', vencimento: somarDias(hoje, 3), categoria_id: cat.contas, recorrencia: 'mensal', dia_original: Number(somarDias(hoje, 3).slice(8, 10)) },
+        { id: novoId(), titulo: 'Pagar conta de luz', valor: 180, vencimento: somarDias(hoje, 1), hora: '18:00', categoria_id: cat.contas },
+        { id: novoId(), titulo: 'Aluguel', valor: 1200, vencimento: somarDias(hoje, 3), categoria_id: cat.contas, recorrencia: 'mensal', dia_original: Number(somarDias(hoje, 3).slice(8, 10)) },
         { id: novoId(), titulo: 'Organizar o armário', vencimento: null, categoria_id: cat.geral },
         { id: novoId(), titulo: 'Pagar academia', vencimento: somarDias(hoje, -1), categoria_id: cat.contas, concluida_em: quando(-1, '19:00') },
         { id: novoId(), titulo: 'Marcar dentista', vencimento: null, categoria_id: cat.geral, concluida_em: quando(0, '08:30') },
         { id: novoId(), titulo: 'Fatura do cartão', vencimento: somarDias(hoje, 4), categoria_id: cat.contas },
-        { id: novoId(), titulo: 'Internet', vencimento: somarDias(hoje, -1), categoria_id: cat.contas },
+        { id: novoId(), titulo: 'Internet', valor: 99.9, vencimento: somarDias(hoje, -1), categoria_id: cat.contas },
         { id: novoId(), titulo: 'Renovar CNH', vencimento: somarDias(hoje, 40), categoria_id: cat.docs },
         { id: novoId(), titulo: 'Levar o carro na revisão', vencimento: somarDias(hoje, 12), categoria_id: cat.geral },
         { id: novoId(), titulo: 'IPVA', vencimento: somarDias(hoje, -6), categoria_id: cat.contas, concluida_em: quando(-7, '10:00') },
@@ -394,6 +399,7 @@ function criarApiDemo() {
       if (g.id) Object.assign(db.gastos.find((x) => x.id === g.id), g);
       else db.gastos.push({ ...g, id: novoId(), origem: 'manual' });
       salvar();
+      return g.id ?? db.gastos[db.gastos.length - 1].id;
     },
     async apagarGasto(id) { db.gastos = db.gastos.filter((g) => g.id !== id); salvar(); },
     async restaurarGasto(g) {

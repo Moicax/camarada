@@ -4,7 +4,7 @@
 // (tarefas concluídas, gastos, investimentos). Reabrir uma tarefa tira os pontos dela;
 // apagar um investimento também. Assim o número é sempre honesto.
 import { diaLocal, somarDias, chaveMes, diasEntre } from './dates.js';
-import { resumoMes, diaDoGasto } from './finance.js';
+import { resumoMes, diaDoGasto, formatarReal } from './finance.js';
 
 export const PONTOS = {
   tarefaNoPrazo: 10,
@@ -117,10 +117,23 @@ export function cumprimento(hora) {
  *   camarada?: { liberada?: boolean, recompensa?: string | null, falta?: number, sequencia?: number } }} dados
  * @returns {string}
  */
-export function conselho({ atrasadas = 0, vencemHoje = 0, nivelMeta = null, restaHoje = null, camarada }) {
+/**
+ * A conta a pagar mais próxima que vence hoje ou amanhã (para o Camarada avisar), ou null.
+ * `compromissos` vem de compromissosDoMes (já ordenado por vencimento).
+ */
+export function proximaConta(compromissos, hoje) {
+  for (const c of compromissos ?? []) {
+    const d = diasEntre(hoje, c.vencimento);
+    if (d === 0 || d === 1) return { titulo: c.titulo, valor: c.valor, quando: d === 0 ? 'hoje' : 'amanhã' };
+  }
+  return null;
+}
+
+export function conselho({ atrasadas = 0, vencemHoje = 0, nivelMeta = null, restaHoje = null, camarada, conta = null }) {
   const plural = (n, um, varios) => (n === 1 ? um : varios);
   if (camarada?.liberada && camarada.recompensa) return `Você bateu a meta da semana. Aproveite: ${camarada.recompensa}!`;
   if (atrasadas > 0) return `${atrasadas} ${plural(atrasadas, 'tarefa está atrasada', 'tarefas estão atrasadas')}. Que tal resolver ${plural(atrasadas, 'ela', 'uma delas')} hoje?`;
+  if (conta) return `${conta.titulo} vence ${conta.quando}: ${formatarReal(conta.valor)} já estão separados.`;
   if (nivelMeta === 100) return 'Você passou da meta de gastos do mês. Segura os gastos até virar o mês.';
   if (restaHoje !== null && restaHoje < 0) return 'Hoje já passou do limite do dia. Amanhã é um novo dia: segura um pouco.';
   if (nivelMeta === 80) return 'Você já usou mais de 80% da meta de gastos. Vai com calma até o fim do mês.';

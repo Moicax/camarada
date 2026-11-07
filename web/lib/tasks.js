@@ -113,6 +113,8 @@ export function proximaOcorrencia(tarefa) {
   return {
     titulo: tarefa.titulo,
     notas: tarefa.notas ?? null,
+    // Conta que repete (luz, aluguel): a do mês seguinte já nasce com o mesmo valor.
+    valor: Number(tarefa.valor) > 0 ? Number(tarefa.valor) : null,
     categoria_id: tarefa.categoria_id ?? null,
     hora: normalizarHora(tarefa.hora),
     recorrencia: tarefa.recorrencia,

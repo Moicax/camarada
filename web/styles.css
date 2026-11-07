@@ -792,3 +792,13 @@ button.mini .legenda { color: var(--texto-3); }
   font: 500 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--texto-2);
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
+
+/* Dinheiro com dono: contas a pagar */
+.etiqueta.valor { color: var(--texto); font-weight: 700; }
+.contas-dono .rotulo small { display: block; margin-top: 2px; font-size: 13px; font-weight: 500; color: var(--texto-3); }
+.contas-dono .rotulo small.prazo-atrasado { color: var(--vermelho); }
+.contas-dono .rotulo small.prazo-urgente { color: var(--laranja); }
+.dialogo-botoes.vertical { flex-direction: column; }
+.dialogo-botoes.vertical button { font-weight: 600; }
+.dialogo-botoes.vertical button + button { border-left: 0; border-top: 0.5px solid var(--linha); font-weight: 600; }
+.dialogo-botoes.vertical button.forte { font-weight: 800; }

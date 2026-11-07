@@ -94,9 +94,13 @@ export function tipoDe(g) {
  * (contando hoje). Assim, uma compra feita hoje não muda o limite de hoje: ela reduz o "resta hoje";
  * e uma entrada se espalha pelos dias que faltam. Nos meses que já passaram não há limite diário.
  */
-export function resumoMes({ renda, gastos, mes, hoje, timeZone, metaGasto = 0, metaInvestimento = 0 }) {
+export function resumoMes({ renda, gastos, mes, hoje, timeZone, metaGasto = 0, metaInvestimento = 0, compromissos = [] }) {
   const rendaC = centavos(Number(renda) || 0);
   const mesAtual = chaveMes(hoje);
+  // Contas a pagar do mês (tarefas com valor, ainda abertas): o dinheiro já tem dono, então sai
+  // do que dá para gastar antes mesmo de vencer. Mês que já passou não tem conta "a pagar".
+  const contas = mes < mesAtual ? [] : compromissos;
+  const comprometidoC = contas.reduce((t, c) => t + centavos(Number(c.valor) || 0), 0);
   let gastoC = 0; // gastos − estornos
   let gastoHojeC = 0;
   let entradasC = 0;
@@ -119,7 +123,9 @@ export function resumoMes({ renda, gastos, mes, hoje, timeZone, metaGasto = 0, m
       investidoC += v;
     } else {
       gastoC += v;
-      if (dia === hoje) gastoHojeC += v;
+      // Pagamento de conta ("Paguei"): o dinheiro já estava separado do mês, então não come o
+      // limite de hoje (conta como se já tivesse saído antes).
+      if (dia === hoje && !g.tarefa_id) gastoHojeC += v;
       const c = cartoes.get(nome) || { cartao: nome, totalC: 0, quantidade: 0 };
       c.totalC += v;
       c.quantidade += 1;
@@ -141,11 +147,13 @@ export function resumoMes({ renda, gastos, mes, hoje, timeZone, metaGasto = 0, m
   else if (mes > mesAtual) diasRestantes = diasNoMes(mes);
   else diasRestantes = diasNoMes(mes) - Number(hoje.slice(8, 10)) + 1;
 
-  const disponivelC = rendaC + entradasC - investidoC;
+  const disponivelC = rendaC + entradasC - investidoC - comprometidoC;
   const restaC = disponivelC - gastoC;
   let porDia = null;
   let restaHoje = null;
-  if (diasRestantes > 0 && disponivelC > 0) {
+  // Com renda (ou entradas) no mês, sempre há um limite do dia, mesmo que seja zero: as contas
+  // ou o investido podem ter levado tudo, e aí o Camarada diz "hoje dá R$ 0", não some o número.
+  if (diasRestantes > 0 && (disponivelC > 0 || (rendaC + entradasC > 0 && (comprometidoC > 0 || investidoC > 0)))) {
     const ateOntemC = disponivelC - (gastoC - gastoHojeC);
     const porDiaC = Math.max(0, Math.floor(ateOntemC / diasRestantes));
     porDia = reais(porDiaC);
@@ -172,7 +180,9 @@ export function resumoMes({ renda, gastos, mes, hoje, timeZone, metaGasto = 0, m
     gastoHoje: reais(gastoHojeC),
     credito: reais(creditoC),
     avista: reais(avistaC),
-    saldo: reais(disponivelC - avistaC), // no salário agora: o investido já saiu
+    saldo: reais(rendaC + entradasC - investidoC - avistaC), // no salário agora: o investido já saiu (as contas ainda não)
+    comprometido: reais(comprometidoC),
+    compromissos: contas,
     diasRestantes,
     porDia,
     restaHoje,
@@ -195,6 +205,22 @@ export function resumoMes({ renda, gastos, mes, hoje, timeZone, metaGasto = 0, m
     } : null,
     gastos: doMes.sort((a, b) => String(b.data).localeCompare(String(a.data))),
   };
+}
+
+/**
+ * Contas a pagar de um mês: tarefas abertas, com valor e com vencimento até o fim do mês.
+ * No mês atual entram também as atrasadas (ainda não pagas, ainda vão sair do bolso); num mês
+ * futuro, só as que vencem nele; num mês que já passou, nenhuma. Tarefa sem data não entra.
+ */
+export function compromissosDoMes(tarefas, mes, hoje) {
+  const mesAtual = chaveMes(hoje);
+  if (mes < mesAtual) return [];
+  const inicio = mes === mesAtual ? '' : `${mes}-01`;
+  const fim = `${mes}-${String(diasNoMes(mes)).padStart(2, '0')}`;
+  return (tarefas ?? [])
+    .filter((t) => !t.concluida_em && t.vencimento && Number(t.valor) > 0 && t.vencimento >= inicio && t.vencimento <= fim)
+    .map((t) => ({ id: t.id, titulo: t.titulo, vencimento: t.vencimento, valor: reais(centavos(Number(t.valor))) }))
+    .sort((a, b) => a.vencimento.localeCompare(b.vencimento) || String(a.titulo).localeCompare(String(b.titulo), 'pt-BR'));
 }
 
 /** Nível de alerta da meta de gastos: 100 (passou ou chegou), 80 (quase lá) ou null. */

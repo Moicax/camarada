@@ -197,7 +197,10 @@ async function testarServidor() {
   // Botão "Testar notificação": com login responde; sem login é recusado.
   const { data: tn, error: etn } = await a.cliente.functions.invoke('notificar', { body: { tipo: 'teste' } });
   conferir('Testar notificação responde', !etn && tn?.ok === true, etn?.message ?? JSON.stringify(tn));
+  // Dinheiro com dono: a conta de luz (vence amanhã) ganha valor; o bom dia avisa que já está separada.
+  await a.cliente.from('tarefas').update({ valor: 180 }).eq('titulo', 'Conta de luz (teste)');
   const { data: bd, error: ebd } = await a.cliente.functions.invoke('notificar', { body: { tipo: 'bomdia' } });
+  conferir('Bom dia avisa a conta que vence amanhã, já separada', /vence amanhã: R\$\s?180,00 já estão separados/.test(bd?.corpo ?? ''), bd?.corpo);
   conferir('Ver o bom dia: monta a mensagem', !ebd && /^(Bom dia|Boa tarde|Boa noite)/.test(bd?.titulo ?? '') && /pontos/.test(bd?.corpo ?? ''), ebd?.message ?? `${bd?.titulo} ${bd?.corpo}`);
   conferir('Conta nova começa do zero (sem sequência inventada)', /0\/100 pontos/.test(bd?.corpo ?? '') && !/dias seguidos/.test(bd?.corpo ?? ''), bd?.corpo);
   const semLogin = await fetch(`${URL_SB}/functions/v1/notificar`, { method: 'POST', body: JSON.stringify({ tipo: 'teste' }) });
@@ -424,6 +427,58 @@ async function testarApp() {
     const r6 = await resta();
     conferir('App: investir R$ 100 tira R$ 100 do que dá para gastar', r5 - r6 === 10000, `${r5} → ${r6}`);
     conferir('App: investimento aparece nas metas do mês', (await p.locator('.metas').innerText()).includes('R$ 100,00'));
+
+    // Dinheiro com dono: conta de R$ 180 que vence amanhã sai do mês antes de vencer; "Paguei" lança o
+    // gasto sem contar duas vezes e sem comer o limite de hoje; "Desfazer" volta tudo.
+    const centavosDe = (txt) => Math.round(Number(txt.replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
+    const limiteHoje = async () => {
+      await p.waitForTimeout(1200);
+      const legenda = await p.locator('.destaque .legenda').innerText();
+      const v = centavosDe(await p.locator('.destaque .grande').innerText());
+      return /passou/i.test(legenda) ? -v : v;
+    };
+    const irFinancas = async () => { await p.click('[data-tela=financas]'); await p.waitForSelector('.destaque', { timeout: 15000 }); };
+    const concluirConta = async (escolha) => {
+      await p.click('[data-tela=tarefas]');
+      await p.waitForSelector('.segmentos', { timeout: 15000 });
+      await p.click('[data-aba=vencendo]');
+      await p.locator('.linha:has-text("Conta de luz (teste)") .marcar').click();
+      await p.waitForSelector('.dialogo-botoes.vertical', { timeout: 10000 });
+      await p.click(`.dialogo-botoes.vertical [data-i="${escolha}"]`);
+      await p.waitForSelector('.aviso-flutuante', { timeout: 15000 });
+    };
+    await irFinancas();
+    const semConta = await resta();
+    await p.click('[data-tela=tarefas]');
+    await p.click('[data-acao=nova-tarefa]');
+    await p.fill('#folha input[name=titulo]', 'Conta de luz (teste)');
+    await p.fill('#t-venc', dia(1));
+    await p.fill('#t-valor', '180,00');
+    await p.click('#folha button[type=submit]');
+    await p.waitForSelector('.linha:has-text("Conta de luz (teste)")', { timeout: 15000 });
+    conferir('App: conta com valor mostra o valor na lista', (await p.locator('.linha:has-text("Conta de luz (teste)")').innerText()).includes('R$ 180,00'));
+    await irFinancas();
+    const comConta = await resta();
+    const hojeComConta = await limiteHoje();
+    const dono = await p.locator('.contas-dono').innerText().catch(() => '');
+    conferir('App: "Já têm dono" mostra a conta e ela sai do mês antes de vencer', dono.includes('Conta de luz (teste)') && semConta - comConta === 18000, `${semConta} → ${comConta}`);
+    await foto('3b-dinheiro-com-dono');
+    await concluirConta(0); // Paguei
+    await p.click('.aviso-flutuante button'); // Desfazer
+    await p.waitForTimeout(1500);
+    await irFinancas();
+    const desfeito = await resta();
+    const gastoDesfeito = await p.locator('.gasto:has-text("Conta de luz (teste)")').count();
+    conferir('App: desfazer o "Paguei" volta a conta e apaga o gasto', desfeito === comConta && gastoDesfeito === 0 && (await p.locator('.contas-dono').innerText()).includes('Conta de luz (teste)'), `${comConta} → ${desfeito}, gastos ${gastoDesfeito}`);
+    await concluirConta(0); // Paguei de novo
+    await irFinancas();
+    await p.waitForSelector('.gasto:has-text("Conta de luz (teste)")', { timeout: 15000 });
+    const pago = await resta();
+    const hojePago = await limiteHoje();
+    const linhaPaga = await p.locator('.gasto:has-text("Conta de luz (teste)")').innerText();
+    conferir('App: "Paguei" lança o gasto à vista, marcado como conta paga', /Conta paga/.test(linhaPaga) && /À vista/.test(linhaPaga), linhaPaga.replace(/\s+/g, ' '));
+    conferir('App: pagar a conta não conta duas vezes (resta igual)', pago === comConta, `${comConta} → ${pago}`);
+    conferir('App: pagar a conta não come o limite de hoje', hojePago === hojeComConta, `${hojeComConta} → ${hojePago}`);
 
     // Compra pelo Atalho, com o código desta conta, e o app recarrega ao voltar.
     const c = createClient(URL_SB, CONFIG.supabaseAnonKey, { auth: { persistSession: false } });
