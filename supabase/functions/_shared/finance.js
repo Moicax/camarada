@@ -1,4 +1,4 @@
-import { chaveMes, diasNoMes, diaLocal } from './dates.js';
+import { chaveMes, diasNoMes, diaLocal, diasEntre, somarDias, inicioDaSemana, segundasNoMes as segundas } from './dates.js';
 
 const centavos = (n) => Math.round(n * 100);
 const reais = (c) => c / 100;
@@ -94,6 +94,9 @@ export function tipoDe(g) {
  * (contando hoje). Assim, uma compra feita hoje não muda o limite de hoje: ela reduz o "resta hoje";
  * e uma entrada se espalha pelos dias que faltam. Nos meses que já passaram não há limite diário.
  */
+/** Gasto feito com dinheiro que já estava separado: pagamento de conta ou uso de um objetivo. */
+const separadoAntes = (g) => Boolean(g.tarefa_id || g.objetivo_id);
+
 export function resumoMes({ renda, gastos, mes, hoje, timeZone, metaGasto = 0, metaInvestimento = 0, compromissos = [] }) {
   const rendaC = centavos(Number(renda) || 0);
   const mesAtual = chaveMes(hoje);
@@ -104,7 +107,8 @@ export function resumoMes({ renda, gastos, mes, hoje, timeZone, metaGasto = 0, m
   let gastoC = 0; // gastos − estornos
   let gastoHojeC = 0;
   let entradasC = 0;
-  let investidoC = 0;
+  let investidoC = 0; // tudo o que saiu do que dá para gastar sem ser gasto (investimentos e objetivos)
+  let investidoMetaC = 0; // só investimentos (o guardado para objetivos aparece nos objetivos)
   let avistaC = 0; // gastos à vista
   let creditoC = 0; // gastos no crédito − estornos
   const cartoes = new Map();
@@ -121,11 +125,12 @@ export function resumoMes({ renda, gastos, mes, hoje, timeZone, metaGasto = 0, m
       entradasC += -v;
     } else if (tipo === 'investimento' || tipo === 'resgate') {
       investidoC += v;
+      if (!g.objetivo_id) investidoMetaC += v;
     } else {
       gastoC += v;
-      // Pagamento de conta ("Paguei"): o dinheiro já estava separado do mês, então não come o
-      // limite de hoje (conta como se já tivesse saído antes).
-      if (dia === hoje && !g.tarefa_id) gastoHojeC += v;
+      // Pagamento de conta ("Paguei") ou compra com o dinheiro de um objetivo: o dinheiro já estava
+      // separado, então não come o limite de hoje (conta como se já tivesse saído antes).
+      if (dia === hoje && !separadoAntes(g)) gastoHojeC += v;
       const c = cartoes.get(nome) || { cartao: nome, totalC: 0, quantidade: 0 };
       c.totalC += v;
       c.quantidade += 1;
@@ -173,7 +178,8 @@ export function resumoMes({ renda, gastos, mes, hoje, timeZone, metaGasto = 0, m
     mes,
     renda: reais(rendaC),
     entradas: reais(entradasC),
-    investido: reais(investidoC),
+    investido: reais(investidoMetaC),
+    guardadoObjetivos: reais(investidoC - investidoMetaC),
     disponivel: reais(disponivelC),
     gasto: reais(gastoC),
     resta: reais(restaC),
@@ -198,10 +204,10 @@ export function resumoMes({ renda, gastos, mes, hoje, timeZone, metaGasto = 0, m
     } : null,
     metaInvestimento: metaInvC > 0 ? {
       meta: reais(metaInvC),
-      investido: reais(investidoC),
-      falta: reais(Math.max(0, metaInvC - investidoC)),
-      pct: investidoC / metaInvC,
-      atingida: investidoC >= metaInvC,
+      investido: reais(investidoMetaC),
+      falta: reais(Math.max(0, metaInvC - investidoMetaC)),
+      pct: investidoMetaC / metaInvC,
+      atingida: investidoMetaC >= metaInvC,
     } : null,
     gastos: doMes.sort((a, b) => String(b.data).localeCompare(String(a.data))),
   };
@@ -221,6 +227,176 @@ export function compromissosDoMes(tarefas, mes, hoje) {
     .filter((t) => !t.concluida_em && t.vencimento && Number(t.valor) > 0 && t.vencimento >= inicio && t.vencimento <= fim)
     .map((t) => ({ id: t.id, titulo: t.titulo, vencimento: t.vencimento, valor: reais(centavos(Number(t.valor))) }))
     .sort((a, b) => a.vencimento.localeCompare(b.vencimento) || String(a.titulo).localeCompare(String(b.titulo), 'pt-BR'));
+}
+
+/**
+ * Contas a pagar até um dia (inclusive): tarefas abertas, com valor e vencimento até `ate`
+ * (as atrasadas entram). Usado no limite da semana.
+ */
+export function compromissosAte(tarefas, ate) {
+  return (tarefas ?? [])
+    .filter((t) => !t.concluida_em && t.vencimento && Number(t.valor) > 0 && t.vencimento <= ate)
+    .map((t) => ({ id: t.id, titulo: t.titulo, vencimento: t.vencimento, valor: reais(centavos(Number(t.valor))) }))
+    .sort((a, b) => a.vencimento.localeCompare(b.vencimento) || String(a.titulo).localeCompare(String(b.titulo), 'pt-BR'));
+}
+
+/** Início e fim do período do limite (mês, ou semana de segunda a domingo) que contém `hoje`. */
+export function periodoDe(hoje, periodo = 'mes') {
+  if (periodo === 'semana') {
+    const inicio = inicioDaSemana(hoje);
+    return { inicio, fim: somarDias(inicio, 6) };
+  }
+  const mes = chaveMes(hoje);
+  return { inicio: `${mes}-01`, fim: `${mes}-${String(diasNoMes(mes)).padStart(2, '0')}` };
+}
+
+/**
+ * Objetivos ("Juntar para…"): quanto já foi guardado e quanto o Camarada separa neste período.
+ *
+ * A cota do período é o que faltava no começo dele dividido pelos períodos que faltam até a data
+ * (contando este). Guardar de verdade ("Guardei") abate a reserva: o guardado sai do que dá para
+ * gastar e a reserva cai na mesma medida, sem contar duas vezes.
+ * `movimentos`: lançamentos de investimento ligados a objetivos ({ objetivo_id, valor, data | dia });
+ * valor negativo é dinheiro tirado do objetivo.
+ */
+export function situacaoDosObjetivos({ objetivos, movimentos = [], hoje, periodo = 'mes', timeZone }) {
+  const { inicio, fim } = periodoDe(hoje, periodo);
+  const porObjetivo = new Map();
+  for (const m of movimentos) {
+    if (!m.objetivo_id || m.investimento === false) continue;
+    const dia = diaDoGasto(m, timeZone);
+    const x = porObjetivo.get(m.objetivo_id) || { totalC: 0, antesC: 0, noPeriodoC: 0 };
+    const v = centavos(Number(m.valor) || 0);
+    x.totalC += v;
+    if (dia < inicio) x.antesC += v;
+    else if (dia <= fim) x.noPeriodoC += v;
+    porObjetivo.set(m.objetivo_id, x);
+  }
+  return (objetivos ?? []).filter((o) => !o.concluido_em).map((o) => {
+    const alvoC = centavos(Number(o.valor_alvo) || 0);
+    const { totalC, antesC, noPeriodoC } = porObjetivo.get(o.id) || { totalC: 0, antesC: 0, noPeriodoC: 0 };
+    const atingido = alvoC > 0 && totalC >= alvoC;
+    const prazoPassou = !atingido && o.data_alvo < hoje;
+    let unidades;
+    if (periodo === 'semana') unidades = Math.floor(diasEntre(inicioDaSemana(hoje), inicioDaSemana(o.data_alvo)) / 7) + 1;
+    else {
+      const [a1, m1] = chaveMes(hoje).split('-').map(Number);
+      const [a2, m2] = chaveMes(o.data_alvo).split('-').map(Number);
+      unidades = (a2 * 12 + m2) - (a1 * 12 + m1) + 1;
+    }
+    let cotaC = 0;
+    if (!atingido && !prazoPassou && unidades > 0) cotaC = Math.ceil(Math.max(0, alvoC - antesC) / unidades);
+    const reservadoC = Math.max(0, Math.min(cotaC - noPeriodoC, alvoC - totalC));
+    return {
+      id: o.id,
+      titulo: o.titulo,
+      alvo: reais(alvoC),
+      dataAlvo: o.data_alvo,
+      guardado: reais(totalC),
+      falta: reais(Math.max(0, alvoC - totalC)),
+      pct: alvoC > 0 ? Math.min(1, Math.max(0, totalC / alvoC)) : 0,
+      atingido,
+      prazoPassou,
+      periodo,
+      cota: reais(cotaC),
+      guardadoNoPeriodo: reais(noPeriodoC),
+      reservado: reais(reservadoC),
+      fimDoPeriodo: fim,
+    };
+  });
+}
+
+/** A reserva dos objetivos neste período, no mesmo formato das contas a pagar. */
+export function compromissosDosObjetivos(args) {
+  return situacaoDosObjetivos(args)
+    .filter((o) => o.reservado > 0)
+    .map((o) => ({
+      id: `objetivo:${o.id}`, objetivoId: o.id, objetivo: true, titulo: `Guardar para ${o.titulo}`, vencimento: o.fimDoPeriodo, valor: o.reservado,
+    }));
+}
+
+/**
+ * Resumo da semana (segunda a domingo), para quem recebe por semana (mesada, por exemplo): o
+ * limite do dia é o que resta na semana dividido pelos dias que faltam dela. Mesmas regras do mês:
+ * entradas somam; investimentos, contas a pagar e objetivos já saem antes.
+ */
+export function resumoSemana({ rendaSemanal = 0, gastos, hoje, timeZone, compromissos = [] }) {
+  const { inicio, fim } = periodoDe(hoje, 'semana');
+  const rendaC = centavos(Number(rendaSemanal) || 0);
+  const comprometidoC = compromissos.reduce((t, c) => t + centavos(Number(c.valor) || 0), 0);
+  let gastoC = 0;
+  let gastoHojeC = 0;
+  let entradasC = 0;
+  let investidoC = 0;
+  for (const g of gastos) {
+    const dia = diaDoGasto(g, timeZone);
+    if (dia < inicio || dia > fim) continue;
+    const v = centavos(Number(g.valor));
+    const tipo = tipoDe(g);
+    if (tipo === 'entrada') entradasC += -v;
+    else if (tipo === 'investimento' || tipo === 'resgate') investidoC += v;
+    else {
+      gastoC += v;
+      if (dia === hoje && !separadoAntes(g)) gastoHojeC += v;
+    }
+  }
+  const diasRestantes = diasEntre(hoje, fim) + 1;
+  const disponivelC = rendaC + entradasC - investidoC - comprometidoC;
+  let porDia = null;
+  let restaHoje = null;
+  if (disponivelC > 0 || (rendaC + entradasC > 0 && (comprometidoC > 0 || investidoC > 0))) {
+    const porDiaC = Math.max(0, Math.floor((disponivelC - (gastoC - gastoHojeC)) / diasRestantes));
+    porDia = reais(porDiaC);
+    restaHoje = reais(porDiaC - gastoHojeC);
+  }
+  return {
+    periodo: 'semana',
+    inicio,
+    fim,
+    renda: reais(rendaC),
+    entradas: reais(entradasC),
+    investido: reais(investidoC),
+    gasto: reais(gastoC),
+    gastoHoje: reais(gastoHojeC),
+    comprometido: reais(comprometidoC),
+    compromissos,
+    disponivel: reais(disponivelC),
+    resta: reais(disponivelC - gastoC),
+    diasRestantes,
+    porDia,
+    restaHoje,
+  };
+}
+
+/** Renda de um mês conforme o jeito de receber: salário fixo, mesada por semana ou o que entrar. */
+export function rendaDoMes({ tipoRenda = 'mensal', renda = 0, rendaSemanal = 0, mes }) {
+  if (tipoRenda === 'semanal') return reais(centavos(Number(rendaSemanal) || 0) * segundas(mes));
+  if (tipoRenda === 'variavel') return 0;
+  return Number(renda) || 0;
+}
+
+/**
+ * O número do dia ("hoje ainda dá para gastar"), igual no app, no bom dia e na notificação de
+ * compra. Salário fixo e renda variável usam o mês (a variável conta só o que já entrou); mesada
+ * usa a semana. Contas a pagar e objetivos já saem antes.
+ */
+export function numeroDoDia({
+  tipoRenda = 'mensal', renda = 0, rendaSemanal = 0, gastos = [], tarefas = [], objetivos = [], movimentos = [], hoje, timeZone,
+}) {
+  if (tipoRenda === 'semanal') {
+    const { fim } = periodoDe(hoje, 'semana');
+    const compromissos = [
+      ...compromissosAte(tarefas, fim),
+      ...compromissosDosObjetivos({ objetivos, movimentos, hoje, periodo: 'semana', timeZone }),
+    ];
+    return resumoSemana({ rendaSemanal, gastos, hoje, timeZone, compromissos });
+  }
+  const mes = chaveMes(hoje);
+  const compromissos = [
+    ...compromissosDoMes(tarefas, mes, hoje),
+    ...compromissosDosObjetivos({ objetivos, movimentos, hoje, periodo: 'mes', timeZone }),
+  ];
+  return { periodo: 'mes', ...resumoMes({ renda: rendaDoMes({ tipoRenda, renda, mes }), gastos, mes, hoje, timeZone, compromissos }) };
 }
 
 /** Nível de alerta da meta de gastos: 100 (passou ou chegou), 80 (quase lá) ou null. */

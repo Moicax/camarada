@@ -114,7 +114,7 @@ async function criarApiSupabase() {
     },
 
     async perfil() {
-      return ok(await sb.from('perfis').select('nome, login, dono, atalho_antigo, renda_mensal, token_atalho, horario_aviso, meta_gasto, meta_investimento, recompensa_texto, recompensa_pontos, bom_dia, criado_em').single());
+      return ok(await sb.from('perfis').select('nome, login, dono, atalho_antigo, renda_mensal, tipo_renda, renda_semanal, token_atalho, horario_aviso, meta_gasto, meta_investimento, recompensa_texto, recompensa_pontos, bom_dia, criado_em').single());
     },
     async salvarPerfil(campos) {
       const { data: { user } } = await sb.auth.getUser();
@@ -155,7 +155,7 @@ async function criarApiSupabase() {
     async gastosDoMes(mes) {
       const { inicio, fim } = intervaloDoMes(mes);
       const linhas = ok(await sb.from('gastos')
-        .select('id, valor, estabelecimento, data, origem, forma, investimento, tarefa_id, cartoes(nome)')
+        .select('id, valor, estabelecimento, data, origem, forma, investimento, tarefa_id, objetivo_id, cartoes(nome)')
         .gte('data', inicio).lt('data', fim)
         .order('data', { ascending: false }));
       return linhas.map(({ cartoes, ...g }) => ({ ...g, valor: Number(g.valor), cartao: cartoes?.nome ?? null }));
@@ -164,7 +164,7 @@ async function criarApiSupabase() {
     async gastosDesde(dia) {
       const [a, m, d] = dia.split('-').map(Number);
       const linhas = ok(await sb.from('gastos')
-        .select('id, valor, estabelecimento, data, origem, forma, investimento, tarefa_id, cartoes(nome)')
+        .select('id, valor, estabelecimento, data, origem, forma, investimento, tarefa_id, objetivo_id, cartoes(nome)')
         .gte('data', new Date(a, m - 1, d).toISOString())
         .order('data', { ascending: false }));
       return linhas.map(({ cartoes, ...g }) => ({ ...g, valor: Number(g.valor), cartao: cartoes?.nome ?? null }));
@@ -177,9 +177,10 @@ async function criarApiSupabase() {
     async cartoes() {
       return ok(await sb.from('cartoes').select('id, nome, debito').order('nome'));
     },
-    async salvarGasto({ id, valor, estabelecimento, cartao, forma, investimento = false, data, tarefa_id }) {
+    async salvarGasto({ id, valor, estabelecimento, cartao, forma, investimento = false, data, tarefa_id, objetivo_id }) {
       const campos = { valor, estabelecimento, cartao_id: await idCartao(cartao), forma, investimento, data };
       if (tarefa_id !== undefined) campos.tarefa_id = tarefa_id;
+      if (objetivo_id !== undefined) campos.objetivo_id = objetivo_id;
       if (id) {
         ok(await sb.from('gastos').update(campos).eq('id', id));
         return id;
@@ -195,11 +196,33 @@ async function criarApiSupabase() {
         valor: g.valor, estabelecimento: g.estabelecimento, cartao_id: await idCartao(g.cartao),
         forma: g.forma, investimento: Boolean(g.investimento), data: g.data, origem: g.origem || 'manual',
         tarefa_id: g.tarefa_id ?? null,
+        objetivo_id: g.objetivo_id ?? null,
       }));
     },
     async temComprasAutomaticas() {
       const linhas = ok(await sb.from('gastos').select('id').eq('origem', 'atalho').limit(1));
       return linhas.length > 0;
+    },
+    /** Objetivos em andamento e o que já foi guardado (ou tirado) de cada um. */
+    async objetivos() {
+      const [objetivos, movimentos] = await Promise.all([
+        sb.from('objetivos').select('id, titulo, valor_alvo, data_alvo, concluido_em, criado_em').is('concluido_em', null).order('data_alvo'),
+        sb.from('gastos').select('id, objetivo_id, valor, data, investimento').not('objetivo_id', 'is', null).eq('investimento', true),
+      ]);
+      return {
+        objetivos: ok(objetivos).map((o) => ({ ...o, valor_alvo: Number(o.valor_alvo) })),
+        movimentos: ok(movimentos).map((m) => ({ ...m, valor: Number(m.valor) })),
+      };
+    },
+    async salvarObjetivo({ id, titulo, valor_alvo, data_alvo }) {
+      if (id) ok(await sb.from('objetivos').update({ titulo, valor_alvo, data_alvo }).eq('id', id));
+      else ok(await sb.from('objetivos').insert({ titulo, valor_alvo, data_alvo }));
+    },
+    async apagarObjetivo(id) {
+      ok(await sb.from('objetivos').delete().eq('id', id));
+    },
+    async concluirObjetivo(id, concluido = true) {
+      ok(await sb.from('objetivos').update({ concluido_em: concluido ? new Date().toISOString() : null }).eq('id', id));
     },
     /** Última vez que o Atalho do Apple Pay chamou o servidor para esta conta (ou null). */
     async ultimaTentativaAtalho() {
@@ -251,7 +274,7 @@ async function criarApiSupabase() {
 // ---------------------------------------------------------------- Demonstração
 
 function criarApiDemo() {
-  const CHAVE = 'camarada-demo-v5';
+  const CHAVE = 'camarada-demo-v6';
   const novoId = () => Math.random().toString(36).slice(2, 10);
   const hoje = diaLocal();
   const quando = (dias, hora) => {
@@ -261,9 +284,11 @@ function criarApiDemo() {
 
   function exemplo() {
     const cat = { contas: novoId(), docs: novoId(), geral: novoId() };
+    const show = novoId();
     return {
+      objetivos: [{ id: show, titulo: 'Show', valor_alvo: 600, data_alvo: somarDias(hoje, 75), concluido_em: null }],
       usuario: null,
-      perfil: { nome: 'Você', login: 'voce', dono: true, renda_mensal: 3500, token_atalho: 'demo'.padEnd(48, '0'), horario_aviso: 9, meta_gasto: 1000, meta_investimento: 500, recompensa_texto: 'Pizza no sábado', recompensa_pontos: 100, bom_dia: true, criado_em: quando(-20, '09:00') },
+      perfil: { nome: 'Você', login: 'voce', dono: true, renda_mensal: 3500, tipo_renda: 'mensal', renda_semanal: 0, token_atalho: 'demo'.padEnd(48, '0'), horario_aviso: 9, meta_gasto: 1000, meta_investimento: 500, recompensa_texto: 'Pizza no sábado', recompensa_pontos: 100, bom_dia: true, criado_em: quando(-20, '09:00') },
       categorias: [
         { id: cat.contas, nome: 'Contas', aviso_dias: 5 },
         { id: cat.docs, nome: 'Documentos', aviso_dias: 15 },
@@ -282,6 +307,7 @@ function criarApiDemo() {
         { id: novoId(), titulo: 'IPVA', vencimento: somarDias(hoje, -6), categoria_id: cat.contas, concluida_em: quando(-7, '10:00') },
       ].map((t) => ({ notas: '', concluida_em: null, avisos_enviados: [], ...t })),
       gastos: [
+        { valor: 120, estabelecimento: 'Guardado: Show', cartao: null, data: quando(-4, '10:00'), origem: 'manual', forma: 'avista', investimento: true, objetivo_id: show },
         { valor: 23.9, estabelecimento: 'Padaria Real', cartao: 'Nubank', data: quando(0, '08:12'), origem: 'atalho' },
         { valor: 61.4, estabelecimento: 'Posto Shell', cartao: 'Itaú Click', data: quando(0, '12:40'), origem: 'atalho' },
         { valor: 189.32, estabelecimento: 'Supermercado Dia', cartao: 'Nubank', data: quando(-1, '19:05'), origem: 'atalho' },
@@ -409,6 +435,28 @@ function criarApiDemo() {
     },
     async temComprasAutomaticas() { return db.gastos.some((g) => g.origem === 'atalho'); },
     async ultimaTentativaAtalho() { return null; },
+    async objetivos() {
+      db.objetivos ??= [];
+      return {
+        objetivos: copia(db.objetivos.filter((o) => !o.concluido_em)),
+        movimentos: copia(db.gastos.filter((g) => g.objetivo_id && g.investimento)),
+      };
+    },
+    async salvarObjetivo(o) {
+      db.objetivos ??= [];
+      if (o.id) Object.assign(db.objetivos.find((x) => x.id === o.id), o);
+      else db.objetivos.push({ ...o, id: novoId(), concluido_em: null, criado_em: new Date().toISOString() });
+      salvar();
+    },
+    async apagarObjetivo(id) {
+      db.objetivos = (db.objetivos ?? []).filter((o) => o.id !== id);
+      db.gastos.forEach((g) => { if (g.objetivo_id === id) g.objetivo_id = null; });
+      salvar();
+    },
+    async concluirObjetivo(id, concluido = true) {
+      Object.assign(db.objetivos.find((x) => x.id === id), { concluido_em: concluido ? new Date().toISOString() : null });
+      salvar();
+    },
 
     async rendaDoMes(mes) { return db.rendas[mes] ?? null; },
     async salvarRendaDoMes(mes, valor) {

@@ -203,6 +203,14 @@ async function testarServidor() {
   conferir('Bom dia avisa a conta que vence amanhã, já separada', /vence amanhã: R\$\s?180,00 já estão separados/.test(bd?.corpo ?? ''), bd?.corpo);
   conferir('Ver o bom dia: monta a mensagem', !ebd && /^(Bom dia|Boa tarde|Boa noite)/.test(bd?.titulo ?? '') && /pontos/.test(bd?.corpo ?? ''), ebd?.message ?? `${bd?.titulo} ${bd?.corpo}`);
   conferir('Conta nova começa do zero (sem sequência inventada)', /0\/100 pontos/.test(bd?.corpo ?? '') && !/dias seguidos/.test(bd?.corpo ?? ''), bd?.corpo);
+  // O bom dia usa o mesmo número do dia do app: mesada por semana tem limite; renda que varia, sem nada entrar, não.
+  await a.cliente.from('perfis').update({ tipo_renda: 'semanal', renda_semanal: 100 }).eq('user_id', a.id);
+  const { data: bdSemana } = await a.cliente.functions.invoke('notificar', { body: { tipo: 'bomdia' } });
+  await a.cliente.from('perfis').update({ tipo_renda: 'variavel' }).eq('user_id', a.id);
+  const { data: bdVaria } = await a.cliente.functions.invoke('notificar', { body: { tipo: 'bomdia' } });
+  await a.cliente.from('perfis').update({ tipo_renda: 'mensal' }).eq('user_id', a.id);
+  conferir('Bom dia com mesada por semana mostra quanto dá para gastar', /para gastar/.test(bdSemana?.corpo ?? ''), bdSemana?.corpo);
+  conferir('Bom dia com renda que varia (nada entrou) não inventa limite', !/para gastar/.test(bdVaria?.corpo ?? ''), bdVaria?.corpo);
   const semLogin = await fetch(`${URL_SB}/functions/v1/notificar`, { method: 'POST', body: JSON.stringify({ tipo: 'teste' }) });
   conferir('Testar notificação exige login', semLogin.status === 401, String(semLogin.status));
 
@@ -479,6 +487,51 @@ async function testarApp() {
     conferir('App: "Paguei" lança o gasto à vista, marcado como conta paga', /Conta paga/.test(linhaPaga) && /À vista/.test(linhaPaga), linhaPaga.replace(/\s+/g, ' '));
     conferir('App: pagar a conta não conta duas vezes (resta igual)', pago === comConta, `${comConta} → ${pago}`);
     conferir('App: pagar a conta não come o limite de hoje', hojePago === hojeComConta, `${hojeComConta} → ${hojePago}`);
+
+    // Objetivo ("Juntar para…"): separa a cota do mês sozinho; "Guardar" não conta duas vezes.
+    const semObjetivo = await resta();
+    await p.click('[data-acao=novo-objetivo]');
+    await p.fill('#folha input[name=titulo]', 'Show (teste)');
+    await p.fill('#o-valor', '600,00');
+    await p.fill('#o-data', dia(70));
+    await p.click('#folha button[type=submit]');
+    await p.waitForSelector('.objetivos .meta-linha:has-text("Show (teste)")', { timeout: 15000 });
+    const comObjetivo = await resta();
+    const hojeComObjetivo = await limiteHoje();
+    const linhaReserva = await p.locator('.contas-dono li:has-text("Guardar para Show (teste)")').innerText().catch(() => '');
+    const cota = centavosDe(linhaReserva.split('\n').pop() ?? '');
+    conferir('App: objetivo separa a cota do mês do que dá para gastar', cota > 0 && semObjetivo - comObjetivo === cota, `cota ${cota}, ${semObjetivo} → ${comObjetivo}`);
+    await foto('3c-objetivos');
+    await p.click('.objetivos .meta-linha:has-text("Show (teste)") [data-acao=guardar]');
+    await p.waitForSelector('#gu-valor', { timeout: 10000 });
+    await p.click('#folha button[type=submit]');
+    await p.waitForSelector('.aviso-flutuante', { timeout: 15000 });
+    await p.waitForTimeout(1500);
+    const guardado = await resta();
+    const hojeGuardado = await limiteHoje();
+    const notaObjetivo = await p.locator('.objetivos .meta-linha:has-text("Show (teste)")').innerText();
+    conferir('App: "Guardar" a cota não conta duas vezes nem come o limite de hoje', guardado === comObjetivo && hojeGuardado === hojeComObjetivo && /feito/.test(notaObjetivo), `${comObjetivo} → ${guardado}; hoje ${hojeComObjetivo} → ${hojeGuardado}`);
+
+    // Como recebe: mesada por semana (limite até domingo) e renda que varia (só o que entrou); depois volta ao salário.
+    const comoRecebe = async (opcao, valor) => {
+      await p.click('[data-tela=ajustes]');
+      await p.click('[data-acao=como-recebe]');
+      await p.waitForSelector('#cr-valor', { state: 'attached', timeout: 10000 });
+      await p.click(`#folha .tres-segmentos label:has-text("${opcao}")`);
+      if (valor) await p.fill('#cr-valor', valor);
+      await p.click('#folha button[type=submit]');
+      await p.waitForSelector('.aviso-flutuante', { timeout: 15000 });
+      await irFinancas();
+      await p.waitForTimeout(1200);
+    };
+    await comoRecebe('Mesada', '70,00');
+    const semanal = (await p.locator('.destaque').innerText()).replace(/\s+/g, ' ');
+    const miniMesada = await p.locator('.tres .mini').first().innerText();
+    conferir('App: mesada por semana calcula o limite até domingo', /semana|domingo/i.test(semanal) && /Mesada/i.test(miniMesada), semanal.slice(0, 140));
+    await comoRecebe('Varia');
+    const miniVaria = (await p.locator('.tres .mini').first().innerText()).replace(/\s+/g, ' ');
+    conferir('App: renda que varia usa só o que entrou', /Entrou/i.test(miniVaria) && /200,00/.test(miniVaria), miniVaria);
+    await comoRecebe('Salário', '3.000,00');
 
     // Compra pelo Atalho, com o código desta conta, e o app recarrega ao voltar.
     const c = createClient(URL_SB, CONFIG.supabaseAnonKey, { auth: { persistSession: false } });

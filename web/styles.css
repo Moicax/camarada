@@ -802,3 +802,11 @@ button.mini .legenda { color: var(--texto-3); }
 .dialogo-botoes.vertical button { font-weight: 600; }
 .dialogo-botoes.vertical button + button { border-left: 0; border-top: 0.5px solid var(--linha); font-weight: 600; }
 .dialogo-botoes.vertical button.forte { font-weight: 800; }
+
+/* Etapa 2: objetivos e "como você recebe" */
+.objetivos .meta-nome { display: inline-flex; align-items: center; gap: 6px; }
+.objetivos .meta-nome .ic, .lista .rotulo > .ic { width: 17px; height: 17px; stroke-width: 2.2; color: var(--verde); vertical-align: -3px; margin-right: 6px; }
+.objetivos .meta-nome .ic { margin-right: 0; }
+.objetivos .item.acao { border-top: 0.5px solid var(--linha); border-radius: 0; }
+.destaque .link.claro { color: rgba(255, 255, 255, 0.72); margin-top: 4px; }
+.sem-quebra { white-space: nowrap; }

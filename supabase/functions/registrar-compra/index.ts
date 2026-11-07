@@ -10,7 +10,7 @@
 // Publicar com: supabase functions deploy registrar-compra --no-verify-jwt
 // (a segurança vem do código pessoal, não do login, porque o Atalho não faz login).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
-import { lerValor, nomeCartao, resumoMes, formatarReal, compromissosDoMes } from '../_shared/finance.js';
+import { lerValor, nomeCartao, formatarReal, numeroDoDia, periodoDe } from '../_shared/finance.js';
 import { diaLocal, chaveMes } from '../_shared/dates.js';
 import { enviarPush } from '../_shared/push.ts';
 import { conferirMeta } from '../_shared/meta.ts';
@@ -70,7 +70,7 @@ async function acharPerfil(req: Request, corpo: Record<string, unknown>) {
     const hash = resumoAtalhoAntigo(antigo[1]);
     const { data: conta } = await supabase.from('contas_antigas').select('user_id').eq('atalho_hash', hash).maybeSingle();
     if (!conta) return { erro: resposta(404, { ok: false, erro: 'Endereço não encontrado.' }) };
-    const { data: perfil } = await supabase.from('perfis').select('user_id, renda_mensal').eq('user_id', conta.user_id).single();
+    const { data: perfil } = await supabase.from('perfis').select('user_id, renda_mensal, tipo_renda, renda_semanal').eq('user_id', conta.user_id).single();
     return { perfil };
   }
   const token = texto(primeiro(corpo, ['token', 'codigo', 'código']), 100);
@@ -79,7 +79,7 @@ async function acharPerfil(req: Request, corpo: Record<string, unknown>) {
   }
   const { data: perfil, error } = await supabase
     .from('perfis')
-    .select('user_id, renda_mensal')
+    .select('user_id, renda_mensal, tipo_renda, renda_semanal')
     .eq('token_atalho', token)
     .maybeSingle();
   if (error) return { erro: resposta(500, { ok: false, erro: 'Erro ao buscar conta' }) };
@@ -155,22 +155,31 @@ Deno.serve(async (req) => {
   }
   await anotar(userId, 200, null, formato);
 
-  // Resumo do mês para a notificação: "hoje ainda dá para gastar R$ X".
+  // O número do dia para a notificação ("hoje ainda dá para gastar R$ X"), igual ao do app.
   const hoje = diaLocal(new Date(), FUSO);
   const mes = chaveMes(hoje);
   const [ano, m] = mes.split('-').map(Number);
-  const inicio = new Date(Date.UTC(ano, m - 1, 1) - 3 * 3600_000).toISOString();
+  // Lançamentos desde o começo do mês ou da semana (para quem recebe por semana), o que vier antes.
+  const desdeDia = [`${mes}-01`, periodoDe(hoje, 'semana').inicio].sort()[0];
+  const desde = new Date(`${desdeDia}T03:00:00Z`).toISOString(); // 0h em Brasília
   const fim = new Date(Date.UTC(ano, m, 1) + 3 * 3600_000).toISOString();
 
-  const [{ data: gastos }, { data: rendaMes }, { data: contas }] = await Promise.all([
-    supabase.from('gastos').select('valor, data, forma, investimento, tarefa_id').eq('user_id', userId).gte('data', inicio).lt('data', fim),
+  const [{ data: gastos }, { data: rendaMes }, { data: contas }, { data: objetivos }, { data: movimentos }] = await Promise.all([
+    supabase.from('gastos').select('valor, data, forma, investimento, tarefa_id, objetivo_id').eq('user_id', userId).gte('data', desde).lt('data', fim),
     supabase.from('rendas_mes').select('valor').eq('user_id', userId).eq('mes', mes).maybeSingle(),
-    // Contas a pagar (tarefas abertas com valor): já saem do que dá para gastar.
+    // Contas a pagar (tarefas abertas com valor) e objetivos: já saem do que dá para gastar.
     supabase.from('tarefas').select('id, titulo, vencimento, valor, concluida_em').eq('user_id', userId)
       .is('concluida_em', null).not('valor', 'is', null),
+    supabase.from('objetivos').select('id, titulo, valor_alvo, data_alvo, concluido_em').eq('user_id', userId).is('concluido_em', null),
+    supabase.from('gastos').select('objetivo_id, valor, data, investimento').eq('user_id', userId).not('objetivo_id', 'is', null).eq('investimento', true),
   ]);
-  const renda = Number(rendaMes?.valor ?? perfil!.renda_mensal ?? 0);
-  const resumo = resumoMes({ renda, gastos: gastos ?? [], mes, hoje, timeZone: FUSO, compromissos: compromissosDoMes(contas ?? [], mes, hoje) });
+  const resumo = numeroDoDia({
+    tipoRenda: perfil!.tipo_renda ?? 'mensal',
+    renda: Number(rendaMes?.valor ?? perfil!.renda_mensal ?? 0),
+    rendaSemanal: Number(perfil!.renda_semanal) || 0,
+    gastos: gastos ?? [], tarefas: contas ?? [], objetivos: objetivos ?? [], movimentos: movimentos ?? [],
+    hoje, timeZone: FUSO,
+  });
 
   const titulo = `${formatarReal(valor)}${estabelecimento ? ` · ${estabelecimento}` : ''}`;
   const detalhe =

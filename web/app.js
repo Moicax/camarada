@@ -1,11 +1,14 @@
 import { api, MODO_DEMO } from './api.js';
 import { CONFIG } from './config.js';
 import { ic } from './icones.js';
-import { diaLocal, chaveMes, mudarMes, nomeMes, rotuloDia, diaCurto, diasEntre } from './lib/dates.js';
+import { diaLocal, chaveMes, mudarMes, nomeMes, rotuloDia, diaCurto, diasEntre, segundasNoMes, somarDias } from './lib/dates.js';
 import {
   separar, rotuloPrazo, OPCOES_ADIAR, adiar, AVISO_PADRAO, RECORRENCIAS, proximaOcorrencia, normalizarHora,
 } from './lib/tasks.js';
-import { resumoMes, formatarReal, lerValor, nomeCartao, FORMAS, tipoDe, compromissosDoMes } from './lib/finance.js';
+import {
+  resumoMes, formatarReal, lerValor, nomeCartao, FORMAS, tipoDe, compromissosDoMes, numeroDoDia, rendaDoMes,
+  situacaoDosObjetivos, compromissosDosObjetivos,
+} from './lib/finance.js';
 import { resumoCamarada, conselho, cumprimento, contarHoje, proximaConta } from './lib/camarada.js';
 import { textoDaAutomacao, situacaoDoAtalho } from './lib/atalho.js';
 
@@ -27,6 +30,8 @@ const estado = {
   perfil: null,
   categorias: [],
   tarefas: [],
+  objetivos: [],
+  movimentos: [],
   mes: chaveMes(hoje()),
   gastos: [],
   rendaMes: null,
@@ -165,7 +170,33 @@ async function carregarHistorico() {
   } catch (e) { console.warn('Histórico não carregado', e); }
 }
 
-const rendaDe = (mes) => Number(estado.historico.rendas[mes] ?? estado.perfil?.renda_mensal ?? 0);
+/** Como a pessoa recebe: 'mensal' (salário fixo), 'semanal' (mesada) ou 'variavel' (o que entrar). */
+const tipoRenda = () => estado.perfil?.tipo_renda || 'mensal';
+
+/** Renda de um mês conforme o jeito de receber (o salário pode ter um valor diferente só naquele mês). */
+const rendaDe = (mes) => (tipoRenda() === 'mensal'
+  ? Number(estado.historico.rendas[mes] ?? estado.perfil?.renda_mensal ?? 0)
+  : rendaDoMes({ tipoRenda: tipoRenda(), rendaSemanal: Number(estado.perfil?.renda_semanal) || 0, mes }));
+
+/** O número do dia: o mesmo no Hoje, em Finanças, no bom dia e na notificação de compra. */
+function numeroHoje() {
+  const h = hoje();
+  return numeroDoDia({
+    tipoRenda: tipoRenda(),
+    renda: rendaDe(chaveMes(h)),
+    rendaSemanal: Number(estado.perfil?.renda_semanal) || 0,
+    gastos: estado.historico.gastos,
+    tarefas: estado.tarefas,
+    objetivos: estado.objetivos,
+    movimentos: estado.movimentos,
+    hoje: h,
+  });
+}
+
+/** Objetivos com o que já foi guardado e a reserva deste período (mês, ou semana para quem tem mesada). */
+const objetivosAgora = () => situacaoDosObjetivos({
+  objetivos: estado.objetivos, movimentos: estado.movimentos, hoje: hoje(), periodo: tipoRenda() === 'semanal' ? 'semana' : 'mes',
+});
 
 /** Contas a pagar do mês (tarefas abertas com valor): o dinheiro já tem dono. */
 const contasDoMes = (mes) => compromissosDoMes(estado.tarefas, mes, hoje());
@@ -208,8 +239,10 @@ function verificarRecompensa() {
 }
 
 async function carregarTudo() {
-  const [perfil, categorias, tarefas] = await Promise.all([api.perfil(), api.categorias(), api.tarefas()]);
-  Object.assign(estado, { perfil, categorias, tarefas });
+  const [perfil, categorias, tarefas, { objetivos, movimentos }] = await Promise.all([
+    api.perfil(), api.categorias(), api.tarefas(), api.objetivos(),
+  ]);
+  Object.assign(estado, { perfil, categorias, tarefas, objetivos, movimentos });
   if (!estado.aba) estado.aba = abasTarefas().vencendo.length ? 'vencendo' : 'pendentes';
   atualizarBadge();
   await carregarHistorico();
@@ -230,7 +263,11 @@ async function carregarFinancas() {
   ]);
   if (mes !== estado.mes) return; // trocou de mês enquanto carregava
   Object.assign(estado, { gastos, rendaMes, cartoes, automaticas, carregandoFinancas: false });
-  if (mes === chaveMes(hoje())) estado.alertaMeta = nivelDaMeta(gastos);
+  if (mes === chaveMes(hoje())) {
+    estado.alertaMeta = nivelDaMeta(gastos);
+    // O número do dia usa o histórico: já atualiza a parte deste mês, sem esperar.
+    estado.historico.gastos = [...estado.historico.gastos.filter((g) => chaveMes(diaLocal(new Date(g.data))) !== mes), ...gastos];
+  }
   render();
   carregarHistorico().then(verificarRecompensa);
 }
@@ -368,14 +405,19 @@ function telaHoje() {
   const c = camaradaAgora();
   const { atrasadas, vencemHoje } = contarHoje(estado.tarefas, h);
   const mesAtual = chaveMes(h);
-  const temRenda = rendaDe(mesAtual) > 0;
-  const fin = resumoMes({
-    renda: rendaDe(mesAtual), gastos: estado.historico.gastos, mes: mesAtual, hoje: h, ...metasDoPerfil(), compromissos: contasDoMes(mesAtual),
-  });
+  const dia = numeroHoje();
+  const temRenda = dia.renda + dia.entradas > 0;
+  // As metas (gastos e investimento) são do mês.
+  const fin = resumoMes({ renda: 0, gastos: estado.historico.gastos, mes: mesAtual, hoje: h, ...metasDoPerfil() });
   const frase = conselho({
-    atrasadas, vencemHoje, nivelMeta: fin.metaGasto?.nivel ?? null, restaHoje: temRenda ? fin.restaHoje : null, camarada: c,
-    conta: proximaConta(fin.compromissos, h),
+    atrasadas, vencemHoje, nivelMeta: fin.metaGasto?.nivel ?? null, restaHoje: temRenda ? dia.restaHoje : null, camarada: c,
+    conta: proximaConta(dia.compromissos, h),
   });
+  const objetivos = objetivosAgora();
+  const temContas = dia.compromissos.some((x) => !x.objetivo);
+  const temObjetivos = dia.compromissos.some((x) => x.objetivo);
+  const rotuloSeparado = temContas && temObjetivos ? 'Contas e objetivos' : temObjetivos ? 'Para os objetivos' : dia.periodo === 'semana' ? 'Contas da semana' : 'Contas do mês';
+  const semRenda = tipoRenda() === 'variavel' ? 'lance o que entrou' : 'informe a renda';
   const paraHoje = estado.tarefas
     .filter((t) => !t.concluida_em && t.vencimento && t.vencimento <= h)
     .sort((a, b) => (a.vencimento + (a.hora || '24')).localeCompare(b.vencimento + (b.hora || '24')));
@@ -411,9 +453,11 @@ function telaHoje() {
     <h3 class="grupo-titulo">Dinheiro</h3>
     <div class="grupo"><ul class="lista">
       <li><button class="item" data-acao="tela" data-tela="financas"><span class="rotulo">Para gastar hoje</span>
-        <span class="valor-dir ${temRenda && fin.restaHoje < 0 ? 'ruim' : ''}">${temRenda ? formatarReal(fin.restaHoje ?? 0) : 'informe a renda'} ›</span></button></li>
-      ${fin.comprometido > 0 ? `<li><button class="item" data-acao="tela" data-tela="financas"><span class="rotulo">Contas do mês</span>
-        <span class="valor-dir">${formatarReal(fin.comprometido)} separados ›</span></button></li>` : ''}
+        <span class="valor-dir ${temRenda && dia.restaHoje < 0 ? 'ruim' : ''}">${temRenda ? formatarReal(dia.restaHoje ?? 0) : semRenda} ›</span></button></li>
+      ${dia.comprometido > 0 ? `<li><button class="item" data-acao="tela" data-tela="financas"><span class="rotulo">${rotuloSeparado}</span>
+        <span class="valor-dir">${formatarReal(dia.comprometido)} separados ›</span></button></li>` : ''}
+      ${objetivos.slice(0, 2).map((o) => `<li><button class="item" data-acao="tela" data-tela="financas"><span class="rotulo">${ic.alvo}${esc(o.titulo)}</span>
+        <span class="valor-dir">${o.atingido ? 'chegou lá!' : `${Math.round(o.pct * 100)}% guardado`} ›</span></button></li>`).join('')}
       ${mg ? `<li><button class="item" data-acao="metas"><span class="rotulo">${mg.nivel ? '<span class="sinal-meta">!</span> ' : ''}Meta de gastos</span>
         <span class="valor-dir ${mg.nivel === 100 ? 'ruim' : mg.nivel === 80 ? 'atencao' : ''}">${Math.round(mg.pct * 100)}% usada ›</span></button></li>` : ''}
       ${mi ? `<li><button class="item" data-acao="metas"><span class="rotulo">Investido</span>
@@ -803,12 +847,16 @@ function valorGrande(n) {
 
 function explicarLimite(r) {
   const restavam = Math.round((r.resta + r.gastoHoje) * 100) / 100;
-  const dias = r.diasRestantes === 1 ? 'hoje, último dia do mês' : `${r.diasRestantes} dias`;
-  const base = r.gastoHoje ? 'que restavam hoje cedo' : 'que restam no mês';
+  const semana = r.periodo === 'semana';
+  const dias = semana
+    ? (r.diasRestantes === 1 ? 'hoje, último dia da semana' : `${r.diasRestantes} dias até domingo`)
+    : (r.diasRestantes === 1 ? 'hoje, último dia do mês' : `${r.diasRestantes} dias`);
+  const base = r.gastoHoje ? 'que restavam hoje cedo' : `que restam ${semana ? 'na semana' : 'no mês'}`;
   const porDia = `<strong>${formatarReal(r.porDia ?? 0)} por dia</strong>`;
-  // Com contas a pagar: "(R$ 2.800 que restam − R$ 420 de contas) ÷ 26 dias".
+  // Com contas a pagar e objetivos: "(R$ 2.800 que restam − R$ 420 separados) ÷ 26 dias".
+  const separado = r.compromissos?.some((c) => c.objetivo) ? 'separados' : 'de contas';
   const conta = r.comprometido
-    ? `(${formatarReal(Math.round((restavam + r.comprometido) * 100) / 100)} ${base} − ${formatarReal(r.comprometido)} de contas) ÷ ${dias} = ${porDia}`
+    ? `(${formatarReal(Math.round((restavam + r.comprometido) * 100) / 100)} ${base} − ${formatarReal(r.comprometido)} ${separado}) ÷ ${dias} = ${porDia}`
     : `${formatarReal(restavam)} ${base} ÷ ${dias} = ${porDia}`;
   return r.gastoHoje ? `${conta}<br>Hoje você já gastou ${formatarReal(r.gastoHoje)}` : conta;
 }
@@ -858,24 +906,38 @@ function cartaoMetas(r) {
 function telaFinancas() {
   const h = hoje();
   const mesAtual = chaveMes(h);
-  const renda = rendaAtual();
-  const r = resumoMes({ renda, gastos: estado.gastos, mes: estado.mes, hoje: h, ...metasDoPerfil(), compromissos: contasDoMes(estado.mes) });
+  const tipo = tipoRenda();
+  const renda = tipo === 'mensal' ? rendaAtual() : rendaDe(estado.mes);
   const ehAtual = estado.mes === mesAtual;
+  // No mês atual, os objetivos também separam a cota deste mês.
+  const reservaObjetivos = ehAtual ? compromissosDosObjetivos({ objetivos: estado.objetivos, movimentos: estado.movimentos, hoje: h, periodo: 'mes' }) : [];
+  const r = resumoMes({
+    renda, gastos: estado.gastos, mes: estado.mes, hoje: h, ...metasDoPerfil(), compromissos: [...contasDoMes(estado.mes), ...reservaObjetivos],
+  });
+  // O número do dia (para quem tem mesada, é o da semana).
+  const dia = ehAtual ? numeroHoje() : null;
+  const temBase = dia ? dia.renda + dia.entradas > 0 : r.renda + r.entradas > 0;
 
   let destaque;
-  if (!renda) {
+  if (ehAtual && !temBase) {
+    const pergunta = {
+      mensal: ['Quanto você recebe por mês?', 'Com a renda, o Camarada calcula quanto dá para gastar por dia.', 'como-recebe', 'Informar renda'],
+      semanal: ['Quanto é a sua mesada por semana?', 'Com ela, o Camarada calcula quanto dá para gastar por dia até domingo.', 'como-recebe', 'Informar mesada'],
+      variavel: ['Quanto já entrou este mês?', 'Lance cada valor que entrar (bico, freela, Pix): o Camarada divide pelos dias que faltam.', 'nova-entrada', 'Lançar o que entrou'],
+    }[tipo];
     destaque = `
       <div class="destaque">
-        <div class="legenda">Quanto você recebe por mês?</div>
-        <div class="detalhe" style="margin:6px 0 12px">Com a renda, o Camarada calcula quanto dá para gastar por dia.</div>
-        <button class="btn-grande" data-acao="renda">Informar renda</button>
+        <div class="legenda">${pergunta[0]}</div>
+        <div class="detalhe" style="margin:6px 0 12px">${pergunta[1]}</div>
+        <button class="btn-grande" data-acao="${pergunta[2]}">${pergunta[3]}</button>
+        ${tipo !== 'mensal' || !r.renda ? '<button class="link claro" data-acao="como-recebe">Recebo de outro jeito</button>' : ''}
       </div>`;
   } else if (ehAtual) {
     destaque = `
       <div class="destaque">
-        <div class="legenda">${(r.restaHoje ?? 0) >= 0 ? 'Hoje ainda dá para gastar' : 'Hoje você passou do limite em'}</div>
-        <div class="grande ${(r.restaHoje ?? 0) >= 0 ? 'ok' : 'ruim'}">${valorGrande(Math.abs(r.restaHoje ?? 0))}</div>
-        <div class="detalhe">${explicarLimite(r)}</div>
+        <div class="legenda">${(dia.restaHoje ?? 0) >= 0 ? 'Hoje ainda dá para gastar' : 'Hoje você passou do limite em'}</div>
+        <div class="grande ${(dia.restaHoje ?? 0) >= 0 ? 'ok' : 'ruim'}">${valorGrande(Math.abs(dia.restaHoje ?? 0))}</div>
+        <div class="detalhe">${explicarLimite(dia)}</div>
       </div>`;
   } else if (estado.mes < mesAtual) {
     destaque = `
@@ -925,15 +987,23 @@ function telaFinancas() {
     : `<div class="vazio">${ic.carteira}<strong>Nenhum gasto ${ehAtual ? 'neste mês ainda' : 'neste mês'}</strong>${ehAtual ? 'Toque em + para lançar um gasto.' : ''}</div>`;
 
   // Contas a pagar (tarefas com valor, abertas): o dinheiro já tem dono até a conta ser paga.
-  const comDono = r.compromissos.length ? `
-    <h3 class="grupo-titulo">Já têm dono ${ehAtual ? 'este mês' : 'neste mês'} · ${formatarReal(r.comprometido)}</h3>
-    <div class="grupo contas-dono"><ul class="lista">${r.compromissos.map((c) => {
+  const dono = dia ?? r;
+  const nesteperiodo = dia?.periodo === 'semana' ? 'esta semana' : ehAtual ? 'este mês' : 'neste mês';
+  const comDono = dono.compromissos.length ? `
+    <h3 class="grupo-titulo">Já têm dono ${nesteperiodo} · ${formatarReal(dono.comprometido)}</h3>
+    <div class="grupo contas-dono"><ul class="lista">${dono.compromissos.map((c) => {
+      if (c.objetivo) {
+        return `<li><button class="item" data-acao="guardar" data-id="${c.objetivoId}">
+          <span class="rotulo">${esc(c.titulo)}<small>guardar ${nesteperiodo}</small></span>
+          <span class="valor-dir">${formatarReal(c.valor)} ›</span></button></li>`;
+      }
       const faltam = diasEntre(h, c.vencimento);
       return `<li><button class="item" data-acao="editar-tarefa" data-id="${c.id}">
         <span class="rotulo">${esc(c.titulo)}<small class="${faltam < 0 ? 'prazo-atrasado' : faltam <= 1 ? 'prazo-urgente' : ''}">${rotuloPrazo(c.vencimento, h)}</small></span>
         <span class="valor-dir">${formatarReal(c.valor)} ›</span></button></li>`;
     }).join('')}</ul></div>
-    <p class="dica" style="text-align:left;margin:-10px 4px 0">Contas a pagar (tarefas com valor) já saem do que dá para gastar. Ao concluir, toque em "Paguei" e o gasto entra sozinho.</p>` : '';
+    <p class="dica" style="text-align:left;margin:-10px 4px 0">Contas a pagar e a parte dos objetivos já saem do que dá para gastar. Ao pagar uma conta, toque em "Paguei"; ao guardar, em "Guardar".</p>` : '';
+  const objetivos = ehAtual ? cartaoObjetivos() : '';
 
   return `
     <div class="mes-nav">
@@ -943,12 +1013,15 @@ function telaFinancas() {
     </div>
     ${destaque}
     <div class="tres">
-      <button class="mini" data-acao="renda"><div class="legenda">Renda ›</div><div class="num">${valorMini(r.renda)}</div>${r.entradas ? `<div class="nota mais">+ ${formatarReal(r.entradas)} de entradas</div>` : ''}</button>
+      ${tipo === 'variavel'
+        ? `<button class="mini" data-acao="como-recebe"><div class="legenda">Entrou ›</div><div class="num">${valorMini(r.entradas)}</div><div class="nota">renda que varia</div></button>`
+        : `<button class="mini" data-acao="${tipo === 'semanal' ? 'como-recebe' : 'renda'}"><div class="legenda">${tipo === 'semanal' ? 'Mesada' : 'Renda'} ›</div><div class="num">${valorMini(r.renda)}</div>${tipo === 'semanal' ? `<div class="nota">${segundasNoMes(estado.mes)} × ${formatarReal(Number(estado.perfil?.renda_semanal) || 0)}</div>` : ''}${r.entradas ? `<div class="nota mais">+ ${formatarReal(r.entradas)} de entradas</div>` : ''}</button>`}
       <div class="mini"><div class="legenda">Gasto</div><div class="num">${valorMini(r.gasto)}</div></div>
       <div class="mini"><div class="legenda">Resta no mês</div><div class="num ${r.resta < 0 ? 'ruim' : ''}">${valorMini(r.resta)}</div></div>
     </div>
     ${renda ? `<div class="barra barra-geral ${pct >= 100 ? 'ruim' : ''}" role="progressbar" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Quanto da renda já foi gasto"><span style="width:${pct}%"></span></div>` : ''}
     ${comDono}
+    ${objetivos}
     ${cartaoMetas(r)}
     ${formas}
     ${convite}
@@ -973,7 +1046,7 @@ function linhaGasto(g) {
   const auto = g.origem === 'atalho';
   const entrada = g.tipo === 'entrada';
   const investe = g.tipo === 'investimento' || g.tipo === 'resgate';
-  const meta = entrada || investe ? [ROTULO_TIPO[g.tipo], hora]
+  const meta = g.objetivo_id ? ['Objetivo', hora] : entrada || investe ? [ROTULO_TIPO[g.tipo], hora]
     : [g.tarefa_id ? 'Conta paga' : '', g.cartao, g.tipo === 'estorno' ? 'Estorno' : g.forma === 'avista' ? 'À vista' : (g.cartao ? '' : 'Crédito'), hora];
   const icone = entrada ? ic.entrada : investe ? ic.investir : auto ? ic.raio : ic.carteira;
   const classe = entrada ? 'entrada' : investe ? 'investe' : auto ? 'auto' : '';
@@ -1205,6 +1278,221 @@ function folhaRenda({ padrao = false } = {}) {
   });
 }
 
+// ---------- objetivos ("Juntar para…") ----------
+
+/** Objetivos em Finanças: quanto já foi guardado, até quando, e quanto guardar neste período. */
+function cartaoObjetivos() {
+  const lista = objetivosAgora();
+  const periodo = tipoRenda() === 'semanal' ? 'esta semana' : 'este mês';
+  const linhas = lista.map((o) => {
+    let nota;
+    if (o.atingido) nota = 'Chegou lá! O dinheiro está guardado.';
+    else if (o.prazoPassou) nota = `O prazo (${diaCurto(o.dataAlvo)}) passou: toque para mudar a data`;
+    else if (o.reservado > 0) nota = `até ${diaCurto(o.dataAlvo)} · ${periodo}: guardar <span class="sem-quebra">${formatarReal(o.reservado)}</span>`;
+    else nota = `até ${diaCurto(o.dataAlvo)} · ${periodo}: feito ✓`;
+    const botao = o.atingido
+      ? `<button class="btn-pilula" data-acao="usar-objetivo" data-id="${o.id}">${ic.check}Usei o dinheiro</button>`
+      : `<button class="btn-pilula" data-acao="guardar" data-id="${o.id}">${ic.investir}Guardar</button>`;
+    return `
+      <div class="meta-linha objetivo ${o.atingido ? 'atingida' : o.prazoPassou ? 'alerta' : ''}">
+        <button class="meta-topo" data-acao="objetivo" data-id="${o.id}"><span class="meta-nome">${ic.alvo}${esc(o.titulo)}</span>
+          <span class="meta-valores"><strong>${formatarReal(o.guardado)}</strong> de ${formatarReal(o.alvo)}</span></button>
+        <span class="barra investir"><span style="width:${o.pct > 0 ? Math.max(2, Math.round(o.pct * 100)) : 0}%"></span></span>
+        <span class="meta-rodape"><span class="meta-nota">${nota}</span>${botao}</span>
+      </div>`;
+  }).join('');
+  return `
+    <h3 class="grupo-titulo">Objetivos</h3>
+    <div class="grupo metas objetivos">${linhas}
+      <button class="item acao" data-acao="novo-objetivo">${ic.mais}${lista.length ? 'Novo objetivo' : 'Juntar dinheiro para algo'}</button>
+    </div>
+    ${lista.length ? '' : '<p class="dica" style="text-align:left;margin:-10px 4px 0">Um show, um tênis, uma viagem: diga quanto e até quando, e o Camarada separa um pouco por mês do que dá para gastar.</p>'}`;
+}
+
+async function recarregarObjetivos() {
+  try {
+    Object.assign(estado, await api.objetivos());
+  } catch (e) { console.warn('Objetivos não carregados', e); }
+  await carregarHistorico();
+  if (estado.tela === 'financas') await carregarFinancas();
+  else render();
+}
+
+function folhaObjetivo(id) {
+  const o = id ? estado.objetivos.find((x) => x.id === id) : null;
+  const amanha = somarDias(hoje(), 1);
+  const padrao = somarDias(hoje(), 90);
+  abrirFolha(`
+    <form>
+      <div class="folha-topo"><button type="button" data-fechar>Cancelar</button><h2>${o ? 'Objetivo' : 'Novo objetivo'}</h2><button type="submit">Salvar</button></div>
+      <div class="grupo">
+        <div class="campo bloco"><input name="titulo" maxlength="60" placeholder="Para quê? (show, tênis, viagem…)" value="${esc(o?.titulo)}" required ${o ? '' : 'autofocus'}></div>
+        <div class="campo"><label for="o-valor">Quanto</label><input id="o-valor" name="valor" inputmode="decimal" placeholder="R$ 0,00" value="${o ? Number(o.valor_alvo).toFixed(2).replace('.', ',') : ''}" required></div>
+        <div class="campo"><label for="o-data">Até quando</label><input id="o-data" name="data" type="date" min="${amanha}" value="${o?.data_alvo ?? padrao}" required></div>
+      </div>
+      <p class="dica" data-calculo style="margin:-10px 4px 14px;text-align:left">O Camarada divide o que falta pelos ${tipoRenda() === 'semanal' ? 'semanas' : 'meses'} até a data e separa essa parte do que dá para gastar.</p>
+      <p class="erro" hidden></p>
+      ${o ? '<div class="grupo"><button type="button" class="item destrutivo" data-apagar>Apagar objetivo</button></div>' : ''}
+    </form>`,
+  (el, fechar) => {
+    el.querySelector('[data-fechar]').onclick = fechar;
+    // Mostra na hora quanto vai separar por mês (ou semana).
+    const calculo = el.querySelector('[data-calculo]');
+    const recalcular = () => {
+      const valor = lerValor(el.querySelector('#o-valor').value || '');
+      const data = el.querySelector('#o-data').value;
+      if (!Number.isFinite(valor) || valor <= 0 || !data) return;
+      const periodo = tipoRenda() === 'semanal' ? 'semana' : 'mes';
+      const [x] = situacaoDosObjetivos({
+        objetivos: [{ id: o?.id ?? 'novo', titulo: '', valor_alvo: valor, data_alvo: data }],
+        movimentos: o ? estado.movimentos : [], hoje: hoje(), periodo,
+      });
+      if (x && x.cota > 0) calculo.textContent = `Dá ${formatarReal(x.cota)} por ${periodo === 'semana' ? 'semana' : 'mês'} até lá. O Camarada já separa essa parte do que dá para gastar.`;
+    };
+    el.querySelectorAll('#o-valor, #o-data').forEach((c) => c.addEventListener('input', recalcular));
+    recalcular();
+    el.querySelector('[data-apagar]')?.addEventListener('click', async () => {
+      const sim = await confirmar({ titulo: `Apagar "${o.titulo}"?`, texto: 'O que você já guardou continua guardado (aparece como investimento).', ok: 'Apagar', perigo: true });
+      if (!sim) return;
+      fechar();
+      await tentar(() => api.apagarObjetivo(id), 'Objetivo apagado');
+      recarregarObjetivos();
+    });
+    el.querySelector('form').onsubmit = async (e) => {
+      e.preventDefault();
+      const d = Object.fromEntries(new FormData(e.target));
+      const erro = el.querySelector('.erro');
+      const falhar = (msg) => { erro.textContent = msg; erro.hidden = false; };
+      const valor = lerValor(d.valor || '');
+      if (!d.titulo.trim()) return falhar('Diga para que é o dinheiro.');
+      if (!Number.isFinite(valor) || valor <= 0) return falhar('Digite quanto quer juntar, por exemplo 600,00.');
+      if (!d.data || d.data <= hoje()) return falhar('Escolha uma data a partir de amanhã.');
+      fechar();
+      await tentar(() => api.salvarObjetivo({ id: o?.id, titulo: d.titulo.trim(), valor_alvo: valor, data_alvo: d.data }), o ? 'Objetivo salvo' : 'Objetivo criado');
+      recarregarObjetivos();
+    };
+  });
+}
+
+/** "Guardar": separa de verdade um valor para o objetivo (sai do que dá para gastar, sem ser gasto). */
+function folhaGuardar(id) {
+  const o = objetivosAgora().find((x) => x.id === id);
+  if (!o) return;
+  const sugestao = o.reservado > 0 ? o.reservado : o.falta;
+  abrirFolha(`
+    <form>
+      <div class="folha-topo"><button type="button" data-fechar>Cancelar</button><h2>Guardar para ${esc(o.titulo)}</h2><button type="submit">Salvar</button></div>
+      <div class="grupo"><div class="campo"><label for="gu-valor">Valor</label><input id="gu-valor" name="valor" inputmode="decimal" value="${sugestao > 0 ? sugestao.toFixed(2).replace('.', ',') : ''}" autofocus></div></div>
+      <p class="dica" style="margin:-10px 4px 14px;text-align:left">Já tem ${formatarReal(o.guardado)} de ${formatarReal(o.alvo)}. Guarde de verdade (numa caixinha, poupança ou conta separada) e lance aqui: o valor sai do que dá para gastar e conta no objetivo.</p>
+      <p class="erro" hidden></p>
+    </form>`,
+  (el, fechar) => {
+    el.querySelector('[data-fechar]').onclick = fechar;
+    el.querySelector('form').onsubmit = async (e) => {
+      e.preventDefault();
+      const valor = lerValor(el.querySelector('#gu-valor').value || '');
+      if (!Number.isFinite(valor) || valor <= 0) {
+        const erro = el.querySelector('.erro');
+        erro.textContent = 'Digite o valor que você guardou, por exemplo 50,00.';
+        erro.hidden = false;
+        return;
+      }
+      fechar();
+      let idGasto = null;
+      const ok = await tentar(async () => {
+        idGasto = await api.salvarGasto({
+          valor, estabelecimento: `Guardado: ${o.titulo}`.slice(0, 120), cartao: null, forma: 'avista', investimento: true,
+          data: new Date().toISOString(), objetivo_id: id,
+        });
+      });
+      await recarregarObjetivos();
+      if (!ok) return;
+      const chegou = objetivosAgora().find((x) => x.id === id)?.atingido;
+      aviso(chegou ? `Objetivo atingido: ${o.titulo}! 🎉` : `Guardado · ${formatarReal(valor)} para ${o.titulo}`, async () => {
+        await tentar(() => api.apagarGasto(idGasto));
+        recarregarObjetivos();
+      });
+    };
+  });
+}
+
+/** Usou o dinheiro do objetivo: tira do objetivo, lança a compra e encerra (sem mexer no limite de hoje). */
+async function usarObjetivo(id) {
+  const o = objetivosAgora().find((x) => x.id === id);
+  if (!o) return;
+  const sim = await confirmar({
+    titulo: `Usou o dinheiro de ${o.titulo}?`,
+    texto: `Lança a compra de ${formatarReal(o.guardado)} com o que você guardou e encerra o objetivo. O que dá para gastar hoje não muda.`,
+    ok: 'Lançar',
+  });
+  if (!sim) return;
+  const agora = new Date().toISOString();
+  await tentar(async () => {
+    await api.salvarGasto({ valor: -o.guardado, estabelecimento: `Tirado de: ${o.titulo}`.slice(0, 120), cartao: null, forma: 'avista', investimento: true, data: agora, objetivo_id: id });
+    await api.salvarGasto({ valor: o.guardado, estabelecimento: o.titulo.slice(0, 120), cartao: null, forma: 'avista', investimento: false, data: agora, objetivo_id: id });
+    await api.concluirObjetivo(id);
+  }, `${o.titulo}: aproveite! 🎉`);
+  recarregarObjetivos();
+}
+
+/** Como a pessoa recebe: salário fixo por mês, mesada por semana, ou renda que varia. */
+function folhaComoRecebe() {
+  const p = estado.perfil;
+  const atual = tipoRenda();
+  const valores = { mensal: Number(p.renda_mensal) || 0, semanal: Number(p.renda_semanal) || 0 };
+  const opcoes = [
+    ['mensal', 'Salário', 'Salário, estágio ou outro valor fixo por mês. O limite do dia divide o que resta pelos dias do mês.'],
+    ['semanal', 'Mesada', 'Um valor fixo por semana (mesada, por exemplo). O limite do dia divide o que resta pelos dias até domingo.'],
+    ['variavel', 'Varia', 'Bicos, freelas, vendas: lance cada valor que entrar em Finanças (+ → Entrada). O limite do dia usa só o que já entrou.'],
+  ];
+  abrirFolha(`
+    <form>
+      <div class="folha-topo"><button type="button" data-fechar>Cancelar</button><h2>Como você recebe</h2><button type="submit">Salvar</button></div>
+      <div class="segmentos tres-segmentos" role="radiogroup" aria-label="Como você recebe">
+        ${opcoes.map(([t, rotulo]) => `<label><input type="radio" name="tipo" value="${t}" ${atual === t ? 'checked' : ''}><span>${rotulo}</span></label>`).join('')}
+      </div>
+      <div class="grupo" data-campo-valor><div class="campo"><label for="cr-valor" data-rotulo-valor>Por mês</label>
+        <input id="cr-valor" name="valor" inputmode="decimal" placeholder="R$ 0,00"></div></div>
+      <p class="dica" data-explica style="margin:-6px 4px 14px;text-align:left"></p>
+      <p class="erro" hidden></p>
+    </form>`,
+  (el, fechar) => {
+    el.querySelector('[data-fechar]').onclick = fechar;
+    const campo = el.querySelector('#cr-valor');
+    const mostrar = () => {
+      const t = el.querySelector('input[name=tipo]:checked').value;
+      el.querySelector('[data-campo-valor]').hidden = t === 'variavel';
+      el.querySelector('[data-rotulo-valor]').textContent = t === 'semanal' ? 'Por semana' : 'Por mês';
+      el.querySelector('[data-explica]').textContent = opcoes.find((o) => o[0] === t)[2];
+      campo.value = valores[t] ? valores[t].toFixed(2).replace('.', ',') : '';
+    };
+    el.querySelectorAll('input[name=tipo]').forEach((r) => r.addEventListener('change', mostrar));
+    mostrar();
+    el.querySelector('form').onsubmit = async (e) => {
+      e.preventDefault();
+      const t = el.querySelector('input[name=tipo]:checked').value;
+      const valor = t === 'variavel' ? 0 : lerValor(campo.value || '0');
+      if (!Number.isFinite(valor) || valor < 0) {
+        const erro = el.querySelector('.erro');
+        erro.textContent = 'Digite um valor, por exemplo 50,00.';
+        erro.hidden = false;
+        return;
+      }
+      const campos = { tipo_renda: t };
+      if (t === 'mensal') campos.renda_mensal = valor;
+      if (t === 'semanal') campos.renda_semanal = valor;
+      fechar();
+      const ok = await tentar(async () => {
+        await api.salvarPerfil(campos);
+        Object.assign(estado.perfil, campos);
+      }, { mensal: 'Salário salvo', semanal: 'Mesada salva', variavel: 'Pronto: o limite usa o que entrar' }[t]);
+      if (!ok) return;
+      if (estado.tela === 'financas') carregarFinancas();
+      else render();
+    };
+  });
+}
+
 // ---------- compras automáticas (Atalho do iPhone) ----------
 
 function folhaAutomaticas() {
@@ -1398,7 +1686,8 @@ function telaAjustes() {
 
     <h3 class="grupo-titulo">Finanças</h3>
     <div class="grupo"><ul class="lista">
-      <li><button class="item" data-acao="renda-padrao"><span class="rotulo">Renda mensal</span><span class="valor-dir">${formatarReal(Number(p.renda_mensal))} ›</span></button></li>
+      <li><button class="item" data-acao="como-recebe"><span class="rotulo">Como você recebe</span><span class="valor-dir">${
+        tipoRenda() === 'semanal' ? `${formatarReal(Number(p.renda_semanal))} por semana` : tipoRenda() === 'variavel' ? 'o que entrar' : `${formatarReal(Number(p.renda_mensal))} por mês`} ›</span></button></li>
       <li><button class="item" data-acao="metas"><span class="rotulo">Metas do mês</span><span class="valor-dir">${Number(p.meta_gasto) > 0 || Number(p.meta_investimento) > 0 ? 'definidas' : 'nenhuma'} ›</span></button></li>
       <li><button class="item" data-acao="automaticas"><span class="gasto-icone auto" style="width:30px;height:30px">${ic.raio}</span><span class="rotulo">Compras automáticas</span><span class="valor-dir">›</span></button></li>
     </ul></div>
@@ -1679,6 +1968,12 @@ const ACOES = {
   'ver-bom-dia': () => verBomDia(),
   investir: () => folhaGasto(null, 'investimento'),
   'renda-padrao': () => folhaRenda({ padrao: true }),
+  'como-recebe': () => folhaComoRecebe(),
+  'nova-entrada': () => folhaGasto(null, 'entrada'),
+  'novo-objetivo': () => folhaObjetivo(),
+  objetivo: (el) => folhaObjetivo(el.dataset.id),
+  guardar: (el) => folhaGuardar(el.dataset.id),
+  'usar-objetivo': (el) => usarObjetivo(el.dataset.id),
   'novo-gasto': () => folhaGasto(),
   'editar-gasto': (el) => folhaGasto(el.dataset.id),
   automaticas: () => folhaAutomaticas(),

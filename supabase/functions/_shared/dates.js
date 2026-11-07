@@ -90,3 +90,18 @@ export function rotuloDia(iso, hoje) {
   const nome = SEMANA[dow];
   return `${nome[0].toUpperCase()}${nome.slice(1)}, ${diaCurto(iso)}`;
 }
+
+/** Segunda-feira da semana de `dia` (a semana vai de segunda a domingo). */
+export function inicioDaSemana(dia) {
+  const dow = new Date(`${dia}T12:00:00Z`).getUTCDay(); // 0 = domingo
+  return somarDias(dia, -((dow + 6) % 7));
+}
+
+/** Quantas semanas começam (segundas-feiras) no mês 'AAAA-MM'. */
+export function segundasNoMes(chave) {
+  let n = 0;
+  for (let d = 1; d <= diasNoMes(chave); d++) {
+    if (new Date(`${chave}-${pad(d)}T12:00:00Z`).getUTCDay() === 1) n++;
+  }
+  return n;
+}

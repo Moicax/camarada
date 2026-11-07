@@ -3,7 +3,7 @@
 // Os pontos não ficam guardados num placar: são calculados a partir do que a pessoa fez
 // (tarefas concluídas, gastos, investimentos). Reabrir uma tarefa tira os pontos dela;
 // apagar um investimento também. Assim o número é sempre honesto.
-import { diaLocal, somarDias, chaveMes, diasEntre } from './dates.js';
+import { diaLocal, somarDias, chaveMes, diasEntre, inicioDaSemana } from './dates.js';
 import { resumoMes, diaDoGasto, formatarReal } from './finance.js';
 
 export const PONTOS = {
@@ -15,11 +15,8 @@ export const PONTOS = {
 
 export const RECOMPENSA_PADRAO = 100;
 
-/** Segunda-feira da semana do dia (a semana vai de segunda a domingo). */
-export function inicioDaSemana(dia) {
-  const dow = new Date(`${dia}T12:00:00Z`).getUTCDay(); // 0 = domingo
-  return somarDias(dia, -((dow + 6) % 7));
-}
+// Segunda-feira da semana do dia (a semana vai de segunda a domingo): mora em dates.js.
+export { inicioDaSemana };
 
 /**
  * Tudo o que deu pontos entre `de` e `ate` (inclusive), do mais recente para o mais antigo.
@@ -123,6 +120,7 @@ export function cumprimento(hora) {
  */
 export function proximaConta(compromissos, hoje) {
   for (const c of compromissos ?? []) {
+    if (c.objetivo) continue; // a reserva de um objetivo não "vence"
     const d = diasEntre(hoje, c.vencimento);
     if (d === 0 || d === 1) return { titulo: c.titulo, valor: c.valor, quando: d === 0 ? 'hoje' : 'amanhã' };
   }
