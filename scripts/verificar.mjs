@@ -434,7 +434,7 @@ async function testarApp() {
     await p.click('#folha button[type=submit]');
     const r6 = await resta();
     conferir('App: investir R$ 100 tira R$ 100 do que dá para gastar', r5 - r6 === 10000, `${r5} → ${r6}`);
-    conferir('App: investimento aparece nas metas do mês', (await p.locator('.metas').innerText()).includes('R$ 100,00'));
+    conferir('App: investimento aparece nas metas do mês', (await p.locator('.metas:not(.objetivos)').innerText()).includes('R$ 100,00'));
 
     // Dinheiro com dono: conta de R$ 180 que vence amanhã sai do mês antes de vencer; "Paguei" lança o
     // gasto sem contar duas vezes e sem comer o limite de hoje; "Desfazer" volta tudo.
