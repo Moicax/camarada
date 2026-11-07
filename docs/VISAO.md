@@ -98,8 +98,8 @@ O que fazer, sem fugir do foco e sem lotar o app:
 ## Caminho (atualizado pelo público)
 1. ✅ **Dinheiro com dono**: contas com valor separadas do limite, "Paguei" e bom dia. Está no
    teste, esperando o "pode publicar".
-2. **Dinheiro sem salário** (renda variável, mesada semanal e estágio) **e Objetivos ("Juntar
-   para…")**. As duas usam o motor do Dinheiro com dono e abrem os públicos de 15 a 25 anos e de
+2. ✅ **Dinheiro sem salário** (renda variável, mesada semanal e estágio) **e Objetivos ("Juntar
+   para…")**. Está no teste. As duas usam o motor do Dinheiro com dono e abrem os públicos de 15 a 25 anos e de
    autônomos.
 3. **Lançar em 2 segundos:** voz no iPhone e notificação do banco ou do Pix no Android, pelo
    MacroDroid, sem precisar de app de loja.
